@@ -367,3 +367,545 @@ Frontend virtualization (react-window) use karte hain taake sirf visible items r
 Database indexing apply karte hain taake queries fast ho jayein
 Server-side filtering/searching use karte hain instead of frontend filtering
 Aur caching (SWR / React Query) use karte hain taake unnecessary API calls avoid ho jayein
+
+# Node.js Streams & MongoDB Performance Notes
+
+## Node.js Streams
+
+### readFile()
+
+**Purpose:**
+
+* Poori file memory mein load karta hai.
+
+### Example
+
+```js
+fs.readFile("file.zip", (err, data) => {
+  console.log(data);
+});
+```
+
+### Flow
+
+```text
+File
+↓
+Poora RAM mein load
+↓
+Process
+```
+
+### Pros
+
+* Simple
+
+### Cons
+
+* Large files par memory spike
+* 2GB file = 2GB RAM use ho sakti hai
+
+---
+
+### createReadStream()
+
+**Purpose:**
+
+* File ko chunks mein read karta hai.
+
+### Example
+
+```js
+const stream = fs.createReadStream("file.zip");
+
+stream.on("data", (chunk) => {
+  console.log(chunk.length);
+});
+```
+
+### Flow
+
+```text
+File
+↓
+Chunk
+↓
+Process
+
+File
+↓
+Chunk
+↓
+Process
+```
+
+### Pros
+
+* Memory efficient
+* Large files ke liye best
+
+---
+
+### pipe()
+
+### Example
+
+```js
+const stream = fs.createReadStream("video.mp4");
+
+stream.pipe(res);
+```
+
+### Flow
+
+```text
+File
+↓
+Stream
+↓
+Response
+```
+
+### Benefits
+
+* Backpressure automatically handle karta hai
+* Memory efficient
+
+---
+
+### Backpressure
+
+#### Problem
+
+```text
+Producer Fast
+↓
+Consumer Slow
+```
+
+Memory bhar sakti hai.
+
+#### Solution
+
+```text
+Producer
+↓
+Pause
+↓
+Consumer Catch-up
+↓
+Resume
+```
+
+---
+
+## Memory Terms
+
+### RSS
+
+**Definition:**
+Total RAM used by Node process.
+
+### Example
+
+```text
+Before: 44 MB
+After : 145 MB
+```
+
+Matlab Node process total 145 MB RAM use kar raha hai.
+
+---
+
+### Heap Used
+
+**Definition:**
+JavaScript Objects ki memory.
+
+Includes:
+
+* Objects
+* Arrays
+* Strings
+* Functions
+
+### Example
+
+```js
+const users = [];
+```
+
+Ye Heap memory use karega.
+
+---
+
+### External Memory
+
+**Definition:**
+Buffers aur file related memory.
+
+Includes:
+
+* Buffers
+* File Data
+* Streams
+
+### Example
+
+```js
+fs.readFile("100mb-file")
+```
+
+External memory increase hogi.
+
+---
+
+# MongoDB Performance
+
+## COLLSCAN
+
+### Full Form
+
+```text
+Collection Scan
+```
+
+### Meaning
+
+Mongo poori collection check kar raha hai.
+
+### Example
+
+```js
+db.users.find({
+  email: "abc@gmail.com"
+});
+```
+
+Without index.
+
+### Explain Output
+
+```js
+stage: "COLLSCAN"
+```
+
+### Bad Sign
+
+```js
+totalDocsExamined: 100000
+```
+
+---
+
+## IXSCAN
+
+### Full Form
+
+```text
+Index Scan
+```
+
+### Meaning
+
+Mongo index use kar raha hai.
+
+### Explain Output
+
+```js
+stage: "IXSCAN"
+```
+
+### Good Sign
+
+```js
+totalDocsExamined: 1
+```
+
+---
+
+## explain()
+
+### Purpose
+
+Query internally kaise execute hui.
+
+### Example
+
+```js
+db.users.find({
+  email: "user99999@gmail.com"
+}).explain("executionStats");
+```
+
+---
+
+## executionTimeMillis
+
+### Definition
+
+Query execute hone mein kitna time laga.
+
+### Example
+
+```js
+executionTimeMillis: 13
+```
+
+Meaning:
+
+```text
+13 milliseconds
+```
+
+---
+
+## totalDocsExamined
+
+### Definition
+
+Mongo ne kitne actual documents check kiye.
+
+### Bad
+
+```js
+100000
+```
+
+### Good
+
+```js
+1
+```
+
+---
+
+## totalKeysExamined
+
+### Definition
+
+Mongo ne index mein kitni entries check ki.
+
+### Bad
+
+```js
+100000
+```
+
+### Good
+
+```js
+1
+```
+
+---
+
+# Indexes
+
+## Create Single Index
+
+```js
+db.users.createIndex({
+  email: 1
+});
+```
+
+### Use Case
+
+```js
+db.users.find({
+  email: "abc@gmail.com"
+});
+```
+
+---
+
+## Compound Index
+
+```js
+db.users.createIndex({
+  city: 1,
+  age: 1
+});
+```
+
+### Meaning
+
+Mongo pehle city ko sort karega, phir city ke andar age ko.
+
+---
+
+# Left Prefix Rule
+
+Index:
+
+```js
+{
+  city: 1,
+  age: 1
+}
+```
+
+### Works
+
+```js
+{
+  city: "Lahore"
+}
+```
+
+✅ Index Use
+
+---
+
+```js
+{
+  city: "Lahore",
+  age: 25
+}
+```
+
+✅ Index Use
+
+---
+
+### Doesn't Work
+
+```js
+{
+  age: 25
+}
+```
+
+❌ Index Use Nahi Hoga
+
+### Reason
+
+Mongo left-most field se index use karta hai.
+
+---
+
+# Practical Explain Analysis
+
+## Without Index
+
+```js
+stage: "COLLSCAN"
+
+totalDocsExamined: 100012
+```
+
+### Meaning
+
+Mongo ne 100012 documents check kiye.
+
+---
+
+## With Email Index
+
+```js
+stage: "IXSCAN"
+
+totalDocsExamined: 1
+
+totalKeysExamined: 1
+```
+
+### Meaning
+
+Mongo seedha required document tak gaya.
+
+---
+
+## With Compound Index
+
+Index:
+
+```js
+{
+  city: 1,
+  age: 1
+}
+```
+
+Query:
+
+```js
+{
+  city: "Lahore",
+  age: 25
+}
+```
+
+Result:
+
+```js
+stage: "IXSCAN"
+
+totalDocsExamined: 691
+```
+
+### Meaning
+
+Mongo ne 100k+ docs skip kar diye aur sirf matching section scan kiya.
+
+---
+
+# Interview Quick Answers
+
+## Q: COLLSCAN kya hai?
+
+**Answer:**
+
+Mongo poori collection scan kar raha hai.
+
+---
+
+## Q: IXSCAN kya hai?
+
+**Answer:**
+
+Mongo index use kar raha hai.
+
+---
+
+## Q: totalDocsExamined kya hai?
+
+**Answer:**
+
+Mongo ne kitne actual documents check kiye.
+
+---
+
+## Q: totalKeysExamined kya hai?
+
+**Answer:**
+
+Mongo ne kitni index entries check ki.
+
+---
+
+## Q: readFile vs createReadStream?
+
+**Answer:**
+
+```text
+readFile
+↓
+Poora file RAM mein
+
+createReadStream
+↓
+Chunks mein process
+↓
+Less memory
+```
+
+---
+
+## Q: Backpressure kya hai?
+
+**Answer:**
+
+Jab producer fast ho aur consumer slow ho, to stream producer ko pause/resume karwati hai.
+
