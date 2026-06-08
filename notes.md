@@ -901,11 +901,311 @@ Chunks mein process
 Less memory
 ```
 
----
-
 ## Q: Backpressure kya hai?
 
 **Answer:**
 
 Jab producer fast ho aur consumer slow ho, to stream producer ko pause/resume karwati hai.
+
+# Redis Basics Notes
+
+## What is Redis?
+
+Redis (Remote Dictionary Server) ek in-memory key-value database hai.
+
+### Key Features
+
+* Data RAM mein store hota hai.
+* Bahut fast hota hai.
+* Caching ke liye use hota hai.
+* OTP storage ke liye use hota hai.
+* Rate limiting ke liye use hota hai.
+* Session storage ke liye use hota hai.
+* BullMQ queues Redis use karti hain.
+
+# Redis vs MongoDB
+
+## MongoDB
+
+* Persistent Storage
+* Data disk par store hota hai.
+* Long-term storage ke liye use hota hai.
+
+### Example
+
+```js
+{
+  name: "Abdullah",
+  email: "abdullah@gmail.com"
+}
+```
+
+## Redis
+
+* Temporary Fast Storage
+* Data RAM mein store hota hai.
+* Caching aur temporary data ke liye use hota hai.
+
+# Redis Installation (Docker)
+
+Run Redis Container
+
+```bash
+docker run -d --name redis-server -p 6379:6379 redis
+```
+
+Check Running Containers
+
+```bash
+docker ps
+```
+
+Open Redis CLI
+
+```bash
+docker exec -it redis-server redis-cli
+```
+
+# Redis CLI Basics
+
+## Check Connection
+
+```redis
+PING
+```
+
+Output
+
+```text
+PONG
+```
+
+Meaning:
+
+Redis server active hai.
+
+## Store Data
+
+```redis
+SET name Abdullah
+```
+
+Output
+
+```text
+OK
+```
+
+Meaning:
+
+Key = name
+
+Value = Abdullah
+
+## Read Data
+
+```redis
+GET name
+```
+
+Output
+
+```text
+"Abdullah"
+```
+
+## Delete Data
+
+```redis
+DEL name
+```
+
+# TTL (Time To Live)
+
+Redis ki sabse powerful features mein se ek.
+
+### Store Data With Expiry
+
+```redis
+SET otp 1234 EX 60
+```
+
+Meaning:
+
+```text
+Key = otp
+
+Value = 1234
+
+Expire = 60 seconds
+```
+
+## Check Remaining Time
+
+```redis
+TTL otp
+```
+
+Output
+
+```text
+(integer) 53
+```
+
+Meaning:
+
+53 seconds baqi hain.
+
+## Read OTP
+
+```redis
+GET otp
+```
+
+Output
+
+```text
+"1234"
+```
+
+60 seconds baad:
+
+```redis
+GET otp
+```
+
+Output
+
+```text
+(nil)
+```
+
+Meaning:
+
+Redis ne key automatically delete kar di.
+
+# Real World OTP Example
+
+Store OTP
+
+```redis
+SET otp:abdullah@gmail.com 4821 EX 300
+```
+
+Meaning:
+
+```text
+OTP = 4821
+
+Expiry = 5 Minutes
+```
+
+Benefits:
+
+* No manual cleanup
+* Auto deletion
+* Fast access
+
+# Redis with Node.js
+
+Install Package
+
+```bash
+npm install redis
+```
+
+## Connect Redis
+
+```js
+const { createClient } = require("redis");
+
+const client = createClient();
+
+async function main() {
+  await client.connect();
+
+  await client.set("name", "Abdullah");
+
+  const value = await client.get("name");
+
+  console.log(value);
+
+  await client.quit();
+}
+
+main();
+```
+
+Output
+
+```text
+Abdullah
+```
+
+# Concepts Learned
+
+## Redis Server
+
+Redis database server jo requests handle karta hai.
+
+## SET
+
+Data save karna.
+
+Example:
+
+```redis
+SET name Abdullah
+```
+
+## GET
+
+Data retrieve karna.
+
+Example:
+
+```redis
+GET name
+```
+
+## TTL
+
+Time To Live.
+
+Example:
+
+```redis
+SET otp 1234 EX 60
+```
+
+Meaning:
+
+60 seconds baad key automatically delete ho jayegi.
+
+## Node.js + Redis
+
+Node application Redis se connect karke data read/write kar sakti hai.
+
+# Interview Quick Answers
+
+## Redis kya hai?
+
+In-memory key-value database.
+
+
+## Redis MongoDB se fast kyun hai?
+
+Kyuki Redis RAM mein data store karta hai.
+
+
+## TTL kya hota hai?
+
+Key ki expiry time.
+
+
+## OTP MongoDB ki bajaye Redis mein kyun store karte hain?
+
+* Fast access
+* Auto expiry
+* No cleanup required
 
