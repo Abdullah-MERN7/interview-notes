@@ -1209,3 +1209,471 @@ Key ki expiry time.
 * Auto expiry
 * No cleanup required
 
+# Redis Caching & Rate Limiting Notes
+
+# Cache Aside Pattern
+
+## Problem
+
+Har request par MongoDB hit karna expensive hai.
+
+Example:
+
+```js
+const user = await User.findById(id);
+```
+
+1000 requests:
+
+```text
+1000 Mongo Queries
+```
+
+---
+
+## Solution
+
+Redis cache use karo.
+
+Flow:
+
+```text
+Request
+↓
+Redis Check
+↓
+Found?
+↓      ↓
+Yes    No
+↓      ↓
+Return Mongo
+         ↓
+      Save Redis
+         ↓
+       Return
+```
+
+---
+
+# Cache Aside Example
+
+```js
+async function getUser(id) {
+  const cacheKey = `user:${id}`;
+
+  const cachedUser = await client.get(cacheKey);
+
+  if (cachedUser) {
+    console.log("Data from Redis");
+
+    return JSON.parse(cachedUser);
+  }
+
+  const user = await getUserFromDB(id);
+
+  await client.set(
+    cacheKey,
+    JSON.stringify(user),
+    {
+      EX: 60,
+    }
+  );
+
+  console.log("Data from MongoDB");
+
+  return user;
+}
+```
+
+---
+
+# Cache Miss
+
+Definition:
+
+Redis mein data nahi milta.
+
+Flow:
+
+```text
+Redis ❌
+↓
+Mongo ✅
+↓
+Save Redis
+↓
+Return
+```
+
+Example Output:
+
+```text
+Fetching from MongoDB...
+Data from MongoDB
+```
+
+---
+
+# Cache Hit
+
+Definition:
+
+Redis mein data mil jata hai.
+
+Flow:
+
+```text
+Redis ✅
+↓
+Return
+```
+
+Example Output:
+
+```text
+Data from Redis
+```
+
+Mongo hit nahi hoti.
+
+---
+
+# Stale Cache
+
+Definition:
+
+Mongo mein latest data hai lekin Redis mein purana data hai.
+
+Example:
+
+Mongo:
+
+```js
+{
+  name: "Abdullah Tahir"
+}
+```
+
+Redis:
+
+```js
+{
+  name: "Abdullah"
+}
+```
+
+Problem:
+
+```text
+User ko purana data milega.
+```
+
+---
+
+# Cache Invalidation
+
+Definition:
+
+Update ke baad cache delete karna.
+
+Example:
+
+```js
+await User.findByIdAndUpdate(id, data);
+
+await client.del(`user:${id}`);
+```
+
+Flow:
+
+```text
+Update Mongo
+↓
+Delete Redis Cache
+↓
+Next Request
+↓
+Mongo
+↓
+Save Redis
+```
+
+---
+
+# Redis DEL
+
+Purpose:
+
+Key delete karna.
+
+Example:
+
+```js
+await client.del("user:123");
+```
+
+---
+
+# TTL + Cache
+
+Cache ko expiry dena.
+
+Example:
+
+```js
+await client.set(
+  "user:123",
+  JSON.stringify(user),
+  {
+    EX: 60,
+  }
+);
+```
+
+Meaning:
+
+```text
+60 seconds baad cache auto delete
+```
+
+---
+
+# Rate Limiting
+
+Definition:
+
+Ek user ya IP ko limited requests allow karna.
+
+Example:
+
+```text
+5 requests per minute
+```
+
+---
+
+# Redis INCR
+
+Purpose:
+
+Counter increase karna.
+
+Example:
+
+```redis
+INCR login:192.168.1.1
+```
+
+Results:
+
+```text
+Request 1 -> 1
+Request 2 -> 2
+Request 3 -> 3
+Request 4 -> 4
+Request 5 -> 5
+Request 6 -> 6
+```
+
+---
+
+# Rate Limiter Logic
+
+```js
+const count = await client.incr("login:ip");
+
+if (count === 1) {
+  await client.expire("login:ip", 60);
+}
+
+if (count > 5) {
+  return res.status(429).json({
+    message: "Too many requests"
+  });
+}
+```
+
+---
+
+# Why expire() Only Once?
+
+Correct:
+
+```js
+if (count === 1) {
+  await client.expire("login:ip", 60);
+}
+```
+
+Reason:
+
+Countdown sirf first request par start karna hai.
+
+---
+
+Wrong:
+
+```js
+await client.expire("login:ip", 60);
+```
+
+har request par.
+
+Problem:
+
+```text
+Request
+↓
+60 sec
+
+Request
+↓
+60 sec reset
+
+Request
+↓
+60 sec reset
+```
+
+Key kabhi expire nahi hogi.
+
+---
+
+# Rate Limiting Flow
+
+Request 1
+
+```text
+Count = 1
+Expire = 60 sec
+Allow
+```
+
+---
+
+Request 2
+
+```text
+Count = 2
+Allow
+```
+
+---
+
+Request 3
+
+```text
+Count = 3
+Allow
+```
+
+---
+
+Request 4
+
+```text
+Count = 4
+Allow
+```
+
+---
+
+Request 5
+
+```text
+Count = 5
+Allow
+```
+
+---
+
+Request 6
+
+```text
+Count = 6
+↓
+Block
+↓
+429 Too Many Requests
+```
+
+---
+
+# After 60 Seconds
+
+Redis key auto delete.
+
+Example:
+
+```text
+login:192.168.1.1
+↓
+Deleted
+```
+
+Next Request:
+
+```text
+Count = 1
+```
+
+because key no longer exists.
+
+---
+
+# HTTP Status Code
+
+Rate limit exceed:
+
+```http
+429 Too Many Requests
+```
+
+# Interview Quick Answers
+
+## Cache Miss
+
+Redis mein data nahi mila.
+
+## Cache Hit
+
+Redis mein data mil gaya.
+
+## Stale Cache
+
+Redis mein purana data pada hua hai.
+
+## Cache Invalidation
+
+Update ke baad cache delete karna.
+
+## INCR
+
+Redis counter increase karta hai.
+
+## DEL
+
+Redis key delete karta hai.
+
+## TTL
+
+Key ki expiry time.
+
+## Redis Down Ho Jaye To?
+
+Application chal sakti hai.
+
+Reason:
+
+```text
+MongoDB source of truth hai.
+
+Redis performance improve karti hai.
+```
+
+Result:
+
+```text
+App Slow
+❌ App Down nahi
+```
