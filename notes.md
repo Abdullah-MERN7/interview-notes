@@ -1677,3 +1677,495 @@ Result:
 App Slow
 ❌ App Down nahi
 ```
+
+# BullMQ Fundamentals Notes
+
+# What is BullMQ?
+
+BullMQ ek queue system hai jo Redis ke upar build hota hai.
+
+Purpose:
+
+* Background jobs process karna
+* Heavy tasks request lifecycle se bahar nikalna
+* Retries handle karna
+* Scheduled jobs run karna
+
+# Problem Without Queue
+
+Example:
+
+```js
+await User.create(user);
+
+await sendWelcomeEmail(user.email);
+
+return res.json({
+  success: true,
+});
+```
+
+Flow:
+
+```text
+Signup
+↓
+Send Email
+↓
+Wait
+↓
+Response
+```
+
+Problem:
+
+```text
+User ko unnecessary wait karna padega.
+```
+
+# Solution With BullMQ
+
+```text
+Signup
+↓
+Create User
+↓
+Add Job To Queue
+↓
+Response Immediately
+
+Background Worker
+↓
+Send Email
+```
+
+Benefits:
+
+```text
+Fast API Response
+Background Processing
+Retries
+Scalability
+```
+
+# Main Components
+
+## Queue
+
+Waiting area for jobs.
+
+Example:
+
+```text
+Job 1
+Job 2
+Job 3
+Job 4
+```
+
+## Job
+
+Single task.
+
+Example:
+
+```json
+{
+  "email": "abdullah@gmail.com"
+}
+```
+
+## Worker
+
+Queue se jobs uthata hai aur process karta hai.
+
+Flow:
+
+```text
+Queue
+↓
+Worker
+↓
+Execute Task
+```
+
+# Producer
+
+Producer ka kaam:
+
+```text
+Create Job
+↓
+Add To Queue
+```
+
+Example:
+
+```js
+await emailQueue.add(
+  "send-email",
+  {
+    email: "abdullah@gmail.com",
+  }
+);
+```
+
+Producer task execute nahi karta.
+
+Sirf queue mein add karta hai.
+
+# Worker
+
+Worker ka kaam:
+
+```text
+Queue Se Job Lo
+↓
+Process Karo
+```
+
+Example:
+
+```js
+const worker = new Worker(
+  "email-queue",
+  async (job) => {
+    console.log(job.data);
+  }
+);
+```
+
+# FIFO
+
+FIFO = First In First Out
+
+Example:
+
+```text
+Job 1
+Job 2
+Job 3
+```
+
+Processing:
+
+```text
+Job 1
+↓
+Job 2
+↓
+Job 3
+```
+
+Jo pehle queue mein aaya woh pehle process hoga.
+
+# Concurrency
+
+## Concurrency = 1
+
+Example:
+
+```text
+Job 1
+↓
+Complete
+
+Job 2
+↓
+Complete
+
+Job 3
+↓
+Complete
+```
+
+One job at a time.
+
+Example:
+
+```text
+5 Jobs
+3 sec each
+```
+
+Total:
+
+```text
+15 sec
+```
+
+## Concurrency = 5
+
+```js
+const worker = new Worker(
+  "email-queue",
+  async (job) => {
+    // work
+  },
+  {
+    concurrency: 5,
+  }
+);
+```
+
+Flow:
+
+```text
+Job 1
+Job 2
+Job 3
+Job 4
+Job 5
+```
+
+All start together.
+
+Example:
+
+```text
+5 Jobs
+3 sec each
+```
+
+Total:
+
+```text
+≈ 3 sec
+```
+
+# Failed Jobs
+
+Example:
+
+```js
+throw new Error("Email Service Down");
+```
+
+Output:
+
+```text
+Job Failed
+```
+
+# Retries
+
+Example:
+
+```js
+await emailQueue.add(
+  "send-email",
+  {
+    email: "abdullah@gmail.com",
+  },
+  {
+    attempts: 3,
+  }
+);
+```
+
+Flow:
+
+```text
+Try 1
+↓
+Fail
+
+Try 2
+↓
+Fail
+
+Try 3
+↓
+Fail
+```
+
+BullMQ automatically retry karti hai.
+
+# Backoff
+
+Retries ke darmiyan delay.
+
+Example:
+
+```js
+await emailQueue.add(
+  "send-email",
+  {
+    email: "abdullah@gmail.com",
+  },
+  {
+    attempts: 3,
+
+    backoff: {
+      type: "fixed",
+      delay: 5000,
+    },
+  }
+);
+```
+
+Flow:
+
+```text
+Try 1
+↓
+Fail
+
+Wait 5 sec
+
+Try 2
+↓
+Fail
+
+Wait 5 sec
+
+Try 3
+↓
+Fail
+```
+
+# Worker Down Scenario
+
+Queue:
+
+```text
+Queue ✅
+Worker ❌
+```
+
+Result:
+
+```text
+Jobs delete nahi hoti
+Jobs queue mein wait karti hain
+```
+
+Jab worker start hota hai:
+
+```text
+Queue
+↓
+Worker
+↓
+Process Jobs
+```
+
+# When To Use Queue?
+
+Rule:
+
+```text
+Heavy tasks jo user response ke liye immediately required nahi hote.
+```
+
+# Direct Tasks
+
+User response ke liye required.
+
+Examples:
+
+```text
+Login
+Password Validation
+JWT Generation
+User Creation
+Payment Validation
+OTP Verification
+```
+
+# Queue Tasks
+
+Background processing.
+
+Examples:
+
+```text
+Welcome Email
+Newsletter Email
+PDF Generation
+Excel Export
+Image Resize
+Video Processing
+Push Notifications
+```
+
+# Special Case: OTP Email
+
+OTP email usually:
+
+```text
+Direct ✅
+```
+
+Reason:
+
+```text
+User next step OTP par depend karta hai.
+```
+
+Example:
+
+```text
+Forgot Password
+↓
+OTP Email
+↓
+OTP Enter
+↓
+Reset Password
+```
+
+OTP ke baghair flow continue nahi kar sakta.
+
+# Real World Examples
+
+## Queue
+
+```text
+Welcome Email
+PDF Generation
+Excel Export
+Image Processing
+Video Processing
+Push Notifications
+```
+
+## Direct
+
+```text
+Login
+Signup
+JWT Generate
+OTP Verification
+Payment Validation
+```
+
+## BullMQ Kya Hai?
+
+Redis based queue system.
+
+## Queue Kyun Use Karte Hain?
+
+* Fast API response
+* Background jobs
+* Retries
+* Scalability
+
+## Producer Kya Karta Hai?
+
+Job create karta hai aur queue mein add karta hai.
+
+## Worker Kya Karta Hai?
+
+Queue se job uthata hai aur process karta hai.
+
+## FIFO Kya Hai?
+
+First In First Out.
+
+Jo pehle queue mein aata hai woh pehle process hota hai.
+
+## attempts: 3 Kya Karta Hai?
+
+Job fail hone par BullMQ automatically 3 times retry karti hai.
+
