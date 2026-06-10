@@ -2169,3 +2169,418 @@ Jo pehle queue mein aata hai woh pehle process hota hai.
 
 Job fail hone par BullMQ automatically 3 times retry karti hai.
 
+# MongoDB Query Optimization Notes
+
+# Projection Optimization
+
+## Query
+
+```js
+db.users.find({
+  city: "Lahore"
+})
+```
+
+Result:
+
+```text
+IXSCAN ✅
+FETCH ✅
+
+totalKeysExamined: 33339
+totalDocsExamined: 33339
+```
+
+Mongo index use karta hai lekin poora document bhi fetch karta hai.
+
+Flow:
+
+```text
+IXSCAN
+↓
+FETCH
+↓
+Return Documents
+```
+
+## Projection
+
+```js
+db.users.find(
+  {
+    city: "Lahore"
+  },
+  {
+    name: 1,
+    email: 1,
+    _id: 0
+  }
+)
+```
+
+Result:
+
+```text
+PROJECTION_SIMPLE
+
+totalDocsExamined: 33339
+```
+
+Observation:
+
+```text
+Documents examined same rahe
+Lekin response size kam ho gaya
+```
+
+Benefits:
+
+* Less network transfer
+* Less memory usage
+* Faster response
+
+# FETCH
+
+MongoDB ke paas:
+
+```text
+Index
++
+Actual Documents
+```
+
+hote hain.
+
+Example:
+
+```js
+{
+  _id: 1,
+  name: "Abdullah",
+  email: "abdullah@gmail.com",
+  age: 25,
+  city: "Lahore"
+}
+```
+
+Index:
+
+```text
+abdullah@gmail.com
+↓
+Document Location
+```
+
+FETCH ka matlab:
+
+```text
+Index se document location mili
+↓
+Collection mein jao
+↓
+Actual document uthao
+```
+
+# Covered Query
+
+Rule:
+
+```text
+Filter fields
++
+Projection fields
+
+Dono index mein hone chahiye.
+```
+
+Example:
+
+Index:
+
+```js
+db.users.createIndex({
+  email: 1
+})
+```
+
+Query:
+
+```js
+db.users.find(
+  {
+    email: "user99999@gmail.com"
+  },
+  {
+    email: 1,
+    _id: 0
+  }
+)
+```
+
+Result:
+
+```text
+PROJECTION_COVERED
+
+totalDocsExamined: 0
+totalKeysExamined: 1
+```
+
+Observation:
+
+```text
+Mongo collection mein gaya hi nahi.
+```
+
+Flow:
+
+```text
+IXSCAN
+↓
+Return Result
+```
+
+# Covered Query Kab Break Hoti Hai?
+
+Query:
+
+```js
+db.users.find(
+  {
+    email: "user99999@gmail.com"
+  },
+  {
+    email: 1,
+    age: 1,
+    _id: 0
+  }
+)
+```
+
+Problem:
+
+```text
+age index mein nahi hai.
+```
+
+Result:
+
+```text
+FETCH wapas aa jayega.
+```
+
+Flow:
+
+```text
+IXSCAN
+↓
+FETCH
+↓
+Return
+```
+
+# Pagination Optimization
+
+## Skip Pagination
+
+Query:
+
+```js
+db.users.find()
+.skip(50000)
+.limit(10)
+```
+
+Result:
+
+```text
+totalDocsExamined: 50010
+```
+
+Why?
+
+Mongo internally:
+
+```text
+1
+2
+3
+...
+50000
+```
+
+skip karta hai.
+
+Phir:
+
+```text
+50001
+50002
+...
+50010
+```
+
+return karta hai.
+
+Problem:
+
+```text
+Large datasets par slow ho jata hai.
+```
+
+## Cursor Pagination
+
+Query:
+
+```js
+db.users.find({
+  _id: {
+    $gt: lastId
+  }
+})
+.sort({ _id: 1 })
+.limit(10)
+```
+
+Example:
+
+```js
+db.users.find({
+  _id: {
+    $gt: ObjectId("69b2449cc2c4f2a81f6beb38")
+  }
+})
+.sort({ _id: 1 })
+.limit(10)
+```
+
+Result:
+
+```text
+IXSCAN
+
+totalKeysExamined: 10
+totalDocsExamined: 10
+executionTimeMillis: 0
+```
+
+Observation:
+
+```text
+Mongo directly index par jump karta hai.
+```
+
+Flow:
+
+```text
+IXSCAN
+↓
+FETCH
+↓
+Return 10 Docs
+```
+
+# Skip vs Cursor Pagination
+
+## Skip Pagination
+
+```js
+db.users.find()
+.skip(50000)
+.limit(10)
+```
+
+Result:
+
+```text
+totalDocsExamined: 50010
+```
+
+Cons:
+
+* Slow on large datasets
+* Extra document scanning
+* Poor scalability
+
+## Cursor Pagination
+
+```js
+db.users.find({
+  _id: {
+    $gt: lastId
+  }
+})
+.limit(10)
+```
+
+Result:
+
+```text
+totalDocsExamined: 10
+```
+
+Pros:
+
+* Direct index jump
+* Better performance
+* Scales to millions of records
+* Production-friendly
+
+# Important Concepts Learned
+
+✅ Projection
+
+✅ FETCH
+
+✅ PROJECTION_SIMPLE
+
+✅ Covered Query
+
+✅ PROJECTION_COVERED
+
+✅ totalDocsExamined
+
+✅ totalKeysExamined
+
+✅ Skip Pagination
+
+✅ Cursor Pagination
+
+✅ Query Optimization Thinking
+
+# Common Optimization Checklist
+
+1. Check explain()
+
+```js
+.explain("executionStats")
+```
+
+2. Verify:
+
+```text
+IXSCAN
+```
+
+instead of
+
+```text
+COLLSCAN
+```
+
+3. Check:
+
+```text
+totalDocsExamined
+```
+
+4. Use Projection when possible
+
+5. Use Covered Queries when possible
+
+6. Avoid large skip()
+
+7. Prefer Cursor Pagination on large datasets
+
+```
+```
