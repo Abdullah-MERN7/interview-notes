@@ -2584,3 +2584,236 @@ totalDocsExamined
 
 ```
 ```
+
+# Additional MongoDB Production Notes
+
+## 1. Prefix Search
+
+Contains Search:
+
+```js
+{
+  name: {
+    $regex: "john",
+    $options: "i"
+  }
+}
+```
+
+Matches:
+
+* John Doe
+* MyJohn
+* abcjohn
+
+Problem:
+
+* Index efficiently use nahi hota.
+* Large datasets par slow ho sakta hai.
+
+---
+
+Prefix Search:
+
+```js
+{
+  name: {
+    $regex: new RegExp(`^${search}`, "i")
+  }
+}
+```
+
+Matches:
+
+* John Doe
+* John Wick
+
+Doesn't Match:
+
+* MyJohn
+* abcjohn
+
+Benefits:
+
+* Index-friendly
+* Better performance
+* Recommended for search APIs
+
+---
+
+## 2. Dynamic Query Building
+
+Avoid:
+
+```js
+query = {
+  name: ...,
+  isAdmin: ...
+}
+```
+
+Preferred:
+
+```js
+let query = {};
+
+if (search) {
+  query.name = {
+    $regex: new RegExp(`^${search}`, "i"),
+  };
+}
+
+if (isAdmin !== undefined) {
+  query.isAdmin = isAdmin === "true";
+}
+```
+
+Benefits:
+
+* Independent filters
+* Easy to maintain
+* Easy to add new filters
+
+---
+
+## 3. Boolean Filter
+
+Request:
+
+```http
+GET /api/users?isAdmin=true
+```
+
+Implementation:
+
+```js
+query.isAdmin = isAdmin === "true";
+```
+
+Reason:
+
+`req.query` always returns strings.
+
+---
+
+## 4. Date Range Filter
+
+Request:
+
+```http
+GET /api/users?createdAfter=2026-01-01&createdBefore=2026-12-31
+```
+
+Implementation:
+
+```js
+if (createdAfter) {
+  query.createdAt = {
+    ...query.createdAt,
+    $gte: new Date(createdAfter),
+  };
+}
+
+if (createdBefore) {
+  query.createdAt = {
+    ...query.createdAt,
+    $lte: new Date(createdBefore),
+  };
+}
+```
+
+Benefits:
+
+* Works if only `createdAfter` is provided.
+* Works if only `createdBefore` is provided.
+* Works if both are provided.
+
+---
+
+## 5. countDocuments()
+
+Useful for pagination.
+
+```js
+const totalUsers = await User.countDocuments(query);
+```
+
+Calculate total pages:
+
+```js
+const totalPages = Math.ceil(totalUsers / limit);
+```
+
+---
+
+## 6. lean()
+
+Without:
+
+```js
+const users = await User.find();
+```
+
+Returns:
+
+* Mongoose Document
+
+```text
+instanceof User -> true
+typeof user.save -> function
+constructor -> model
+```
+
+---
+
+With:
+
+```js
+const users = await User.find().lean();
+```
+
+Returns:
+
+* Plain JavaScript Object
+
+```text
+instanceof User -> false
+typeof user.save -> undefined
+constructor -> Object
+```
+
+Use `lean()`:
+
+* GET APIs
+* Read-only APIs
+* Listing APIs
+
+Don't use `lean()` when:
+
+```js
+user.save();
+```
+
+is required.
+
+---
+
+## 7. Production User API
+
+Current API supports:
+
+* Search
+* Prefix Search
+* Sorting
+* Pagination
+* Boolean Filter
+* Date Range Filter
+* Projection
+* countDocuments()
+* lean()
+
+Example:
+
+```http
+GET /api/users?page=1&limit=10&search=jo&sort=name&isAdmin=true&createdAfter=2026-01-01&createdBefore=2026-12-31
+```
