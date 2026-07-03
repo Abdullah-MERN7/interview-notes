@@ -2817,3 +2817,465 @@ Example:
 ```http
 GET /api/users?page=1&limit=10&search=jo&sort=name&isAdmin=true&createdAfter=2026-01-01&createdBefore=2026-12-31
 ```
+
+# Express Middleware & Error Handling
+
+## What is Middleware?
+
+Middleware ek function hota hai jo:
+
+- Request receive karta hai.
+- Request ko process karta hai.
+- Ya to agle middleware ko pass karta hai.
+- Ya client ko response bhej deta hai.
+
+Structure:
+
+```js
+(req, res, next) => {}
+```
+
+Flow:
+
+```text
+Request
+    ↓
+Middleware 1
+    ↓
+Middleware 2
+    ↓
+Route
+    ↓
+Response
+```
+
+# app.use()
+
+`app.use()` middleware register karta hai.
+
+Example:
+
+```js
+app.use(express.json());
+
+app.use(logger);
+
+app.use(authMiddleware);
+```
+
+Routes bhi middleware chain ka part hote hain.
+
+```js
+app.use("/users", userRoutes);
+```
+
+# next()
+
+`next()` ka matlab:
+
+```text
+Agla middleware ya route execute karo.
+```
+
+Example:
+
+```js
+app.use((req, res, next) => {
+    console.log("Middleware");
+
+    next();
+});
+```
+
+Flow:
+
+```text
+Middleware
+    ↓
+next()
+    ↓
+Next Middleware / Route
+```
+
+# next() Function Stop Nahi Karta
+
+Example:
+
+```js
+app.use((req, res, next) => {
+    console.log("1");
+
+    next();
+
+    console.log("2");
+});
+```
+
+Output:
+
+```text
+1
+2
+```
+
+Observation:
+
+```text
+next() current function ko stop nahi karta.
+```
+
+# return next()
+
+Example:
+
+```js
+app.use((req, res, next) => {
+    console.log("1");
+
+    return next();
+
+    console.log("2");
+});
+```
+
+Output:
+
+```text
+1
+```
+
+Observation:
+
+```text
+return next()
+
+↓
+
+Current middleware/function ko terminate kar deta hai.
+```
+
+# res.send()
+
+Example:
+
+```js
+app.get("/", (req, res) => {
+    console.log("A");
+
+    res.send("Hello");
+
+    console.log("B");
+});
+```
+
+Output:
+
+```text
+A
+B
+```
+
+Observation:
+
+```text
+res.send()
+
+↓
+
+Sirf response bhejta hai.
+
+↓
+
+Function continue karta hai.
+```
+
+# return res.send()
+
+Example:
+
+```js
+app.get("/", (req, res) => {
+    console.log("A");
+
+    return res.send("Hello");
+
+    console.log("B");
+});
+```
+
+Output:
+
+```text
+A
+```
+
+Observation:
+
+```text
+return
+
+↓
+
+Current function terminate.
+```
+# Error Handling (Without Middleware)
+
+Example:
+
+```js
+router.get("/", async (req, res) => {
+    try {
+        const users = await User.find();
+
+        res.json(users);
+
+    } catch (err) {
+        res.status(500).json({
+            message: err.message
+        });
+    }
+});
+```
+
+Problem:
+
+```text
+Har route mein duplicate try/catch.
+```
+
+# Global Error Middleware
+
+Structure:
+
+```js
+app.use((err, req, res, next) => {
+
+});
+```
+
+Express kaise pehchanta hai?
+
+```text
+4 Parameters
+
+(err, req, res, next)
+
+↓
+
+Error Middleware
+```
+
+Normal Middleware:
+
+```js
+(req, res, next)
+```
+
+# next(err)
+
+Meaning:
+
+```text
+Current error ko Express ke Error Middleware tak bhejo.
+```
+
+Flow:
+
+```text
+Route
+
+↓
+
+Error
+
+↓
+
+next(err)
+
+↓
+
+Normal Middleware Skip
+
+↓
+
+Error Middleware
+
+↓
+
+Client Response
+```
+
+# Error Middleware Example
+
+```js
+const errorHandler = (err, req, res, next) => {
+
+    return res.status(500).json({
+        message: err.message
+    });
+
+};
+```
+
+# asyncHandler
+
+Problem:
+
+Har route mein:
+
+```js
+try {
+
+} catch(err){
+
+    return next(err);
+
+}
+```
+
+repeat ho raha tha.
+
+Solution:
+
+```js
+const asyncHandler = (fn) => {
+
+    return (req, res, next) => {
+
+        return fn(req, res, next).catch(next);
+
+    };
+
+};
+```
+
+Usage:
+
+```js
+router.get(
+    "/users",
+
+    asyncHandler(async (req, res) => {
+
+        const users = await User.find();
+
+        res.json(users);
+
+    })
+);
+```
+
+Flow:
+
+```text
+Request
+
+↓
+
+Route Execute
+
+↓
+
+Promise Resolve
+        ↓
+     Success
+
+OR
+
+Promise Reject
+        ↓
+.catch(next)
+        ↓
+next(err)
+        ↓
+Global Error Middleware
+        ↓
+Client Response
+```
+
+# Promise.catch(next)
+
+Equivalent:
+
+```js
+.catch((err) => {
+
+    next(err);
+
+});
+```
+
+# Why asyncHandler?
+
+Benefits:
+
+- Removes duplicate try/catch
+- Cleaner routes
+- Centralized error handling
+- Easy maintenance
+- Production-friendly
+
+# Golden Rules
+
+## Rule 1
+
+```text
+next()
+
+↓
+
+Agla middleware execute.
+```
+
+## Rule 2
+
+```text
+return next()
+
+↓
+
+Current middleware stop.
+```
+
+## Rule 3
+
+```text
+res.send()
+
+↓
+
+Response send
+
+↓
+
+Function continue.
+```
+
+## Rule 4
+
+```text
+return res.send()
+
+↓
+
+Response send
+
+↓
+
+Function terminate.
+```
+
+## Rule 5
+
+```text
+next(err)
+
+↓
+
+Normal middleware skip
+
+↓
+
+Error Middleware execute.
+```
+
