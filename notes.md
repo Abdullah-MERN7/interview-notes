@@ -3278,4 +3278,606 @@ Normal middleware skip
 
 Error Middleware execute.
 ```
+# Node.js Notes (Part 2)
 
+---
+
+# Promise.all()
+
+## Sequential Execution
+
+```js
+const users = await getUsers();
+const chats = await getChats();
+```
+
+Flow:
+
+```
+Users
+
+↓
+
+Wait
+
+↓
+
+Chats
+
+↓
+
+Wait
+```
+
+Total Time:
+
+```
+2 sec + 3 sec = 5 sec
+```
+
+Use When:
+
+- Operation B depends on Operation A.
+
+Example:
+
+```js
+const user = await User.findById(id);
+
+const posts = await Post.find({
+    userId: user._id
+});
+```
+
+---
+
+## Parallel Execution
+
+```js
+const [users, chats] = await Promise.all([
+    getUsers(),
+    getChats()
+]);
+```
+
+Flow:
+
+```
+Users Start
+
+Chats Start
+
+↓
+
+Users Finish
+
+Chats Finish
+
+↓
+
+Promise.all Resolve
+```
+
+Total Time:
+
+```
+Longest Operation
+```
+
+Example:
+
+```
+Users = 2 sec
+Chats = 3 sec
+
+Total = 3 sec
+```
+
+Use When:
+
+- Operations are independent.
+- One operation does not need another operation's result.
+
+Example:
+
+```js
+await Promise.all([
+    User.countDocuments(),
+    Product.countDocuments(),
+    Order.countDocuments()
+]);
+```
+
+---
+
+## Golden Rule
+
+Dependent Operations
+
+```
+await
+await
+await
+```
+
+Independent Operations
+
+```
+Promise.all()
+```
+
+---
+
+## Promise.all() Failure
+
+If one Promise rejects:
+
+```js
+await Promise.all([
+    Promise.resolve(1),
+    Promise.reject("Error"),
+    Promise.resolve(3)
+]);
+```
+
+Result:
+
+```
+Promise.all Reject
+```
+
+Remaining Promises:
+
+```
+Continue in background.
+```
+
+Promise.all does NOT cancel running operations.
+
+---
+
+## Promise.allSettled()
+
+Purpose:
+
+Return result of every Promise.
+
+Even if some fail.
+
+Example:
+
+```js
+const result = await Promise.allSettled([
+    Promise.resolve("Users"),
+    Promise.reject("DB Error"),
+    Promise.resolve("Orders")
+]);
+```
+
+Output:
+
+```js
+[
+  {
+    status: "fulfilled",
+    value: "Users"
+  },
+  {
+    status: "rejected",
+    reason: "DB Error"
+  },
+  {
+    status: "fulfilled",
+    value: "Orders"
+  }
+]
+```
+
+Use Case:
+
+- Dashboard
+- Analytics
+- Reports
+
+Where partial data is acceptable.
+
+---
+
+# Streams
+
+## Why Streams?
+
+Problem:
+
+```js
+fs.readFile("movie.mp4");
+```
+
+Loads complete file into RAM.
+
+Large files may cause:
+
+```
+Out Of Memory
+```
+
+---
+
+## Stream Solution
+
+```js
+fs.createReadStream()
+```
+
+Reads file in chunks.
+
+Example:
+
+```
+100 MB File
+
+↓
+
+10 MB
+
+↓
+
+10 MB
+
+↓
+
+10 MB
+
+↓
+
+...
+```
+
+Memory remains almost constant.
+
+---
+
+## Important Events
+
+### data
+
+Runs for every chunk.
+
+```js
+readStream.on("data", (chunk) => {});
+```
+
+---
+
+### end
+
+Runs after complete file is read.
+
+```js
+readStream.on("end", () => {});
+```
+
+---
+
+### error
+
+Runs if reading fails.
+
+```js
+readStream.on("error", (err) => {});
+```
+
+---
+
+## Write Stream
+
+```js
+const writeStream =
+fs.createWriteStream("copy.txt");
+```
+
+Writes data into a file.
+
+---
+
+## Pipe
+
+Without Pipe:
+
+```js
+readStream.on("data", chunk => {
+    writeStream.write(chunk);
+});
+
+readStream.on("end", () => {
+    writeStream.end();
+});
+```
+
+With Pipe:
+
+```js
+readStream.pipe(writeStream);
+```
+
+Purpose:
+
+Automatically move chunks from Read Stream to Write Stream.
+
+---
+
+## Pipe Limitation
+
+Pipe copies data as-is.
+
+Cannot modify data.
+
+If data transformation is required:
+
+```js
+chunk.toString().toUpperCase()
+```
+
+Use manual processing (or Transform Streams).
+
+---
+
+# Redis
+
+## What is Redis?
+
+Redis is an in-memory database.
+
+Purpose:
+
+Store frequently accessed data temporarily in RAM.
+
+---
+
+## Why Redis?
+
+Without Redis:
+
+```
+Client
+
+↓
+
+MongoDB
+
+↓
+
+Response
+```
+
+Every request hits MongoDB.
+
+With Redis:
+
+```
+Client
+
+↓
+
+Redis
+
+↓
+
+Found?
+
+↓
+
+Yes → Response
+
+No → MongoDB
+
+↓
+
+Save to Redis
+
+↓
+
+Response
+```
+
+---
+
+## Cache Hit
+
+```
+Data found in Redis.
+```
+
+MongoDB is not used.
+
+---
+
+## Cache Miss
+
+```
+Data not found in Redis.
+```
+
+MongoDB is queried.
+
+Data is stored again in Redis.
+
+---
+
+## TTL
+
+Full Form:
+
+```
+Time To Live
+```
+
+Purpose:
+
+Automatically remove cached data after a specific time.
+
+Example:
+
+```
+TTL = 60 seconds
+
+↓
+
+Key expires automatically.
+```
+
+---
+
+# Rate Limiting
+
+Problem:
+
+Attacker sends:
+
+```
+10000 requests/minute
+```
+
+Without Rate Limiting:
+
+```
+MongoDB
+
+↓
+
+10000 Queries
+```
+
+---
+
+## Solution
+
+Store request counter in Redis.
+
+Example:
+
+```
+IP
+
+↓
+
+Counter = 1
+
+↓
+
+Counter = 2
+
+↓
+
+Counter = 3
+```
+
+If limit exceeded:
+
+```
+429 Too Many Requests
+```
+
+Request is rejected before reaching MongoDB.
+
+---
+
+## Why Redis?
+
+Request counter changes frequently.
+
+Redis stores data in RAM.
+
+Much faster than MongoDB.
+
+---
+
+## Rate Limiting Flow
+
+```
+Request
+
+↓
+
+Redis
+
+↓
+
+Counter Exists?
+
+↓
+
+No
+
+↓
+
+Counter = 1
+
+TTL = 60 sec
+
+↓
+
+Allow Request
+
+----------------
+
+Counter Exists
+
+↓
+
+Increment Counter
+
+↓
+
+Counter > Limit ?
+
+↓
+
+Yes
+
+↓
+
+429 Too Many Requests
+
+↓
+
+No
+
+↓
+
+Allow Request
+```
+
+---
+
+# Quick Revision
+
+## Promise.all()
+- Parallel Execution
+- Independent Operations
+- Fail Fast
+- Doesn't cancel running Promises
+---
+## Promise.allSettled()
+- Returns all results
+- Resolve + Reject both returned
+---
+## Streams
+- Reads data in chunks
+- Saves RAM
+- data
+- end
+- error
+- pipe()
+---
+## Redis
+- In-memory database
+- Cache
+- Cache Hit
+- Cache Miss
+- TTL
+---
+## Rate Limiting
+- Redis Counter
+- TTL
+- 429 Too Many Requests
