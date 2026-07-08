@@ -3881,3 +3881,344 @@ Allow Request
 - Redis Counter
 - TTL
 - 429 Too Many Requests
+
+# Node.js - Promise & Async Notes
+
+# 1. Sequential Execution
+
+```js
+const users = await getUsers();
+const chats = await getChats();
+```
+
+Execution:
+
+```
+getUsers()
+
+↓
+
+Wait
+
+↓
+
+getChats()
+
+↓
+
+Wait
+```
+
+✅ Use when:
+
+- Operation B depends on Operation A.
+
+Example:
+
+```js
+const user = await User.findById(id);
+
+const posts = await Post.find({
+    userId: user._id
+});
+```
+
+# 2. Parallel Execution (Promise.all)
+
+```js
+const [users, chats] = await Promise.all([
+    getUsers(),
+    getChats()
+]);
+```
+
+Execution:
+
+```
+getUsers()  🚀
+
+getChats()  🚀
+
+↓
+
+Wait for both
+
+↓
+
+Result
+```
+
+✅ Use when:
+
+- Operations are independent.
+
+Example:
+
+```js
+await Promise.all([
+    User.find(),
+    Post.find(),
+    Comment.find()
+]);
+```
+
+# Promise.all Rules
+
+✅ Input order maintain hota hai.
+
+```js
+const [users, posts] = await Promise.all([
+    User.find(),
+    Post.find()
+]);
+```
+
+Chahe Post pehle complete ho.
+
+Result:
+
+```js
+[users, posts]
+```
+
+✅ Ek promise reject
+
+↓
+
+Promise.all reject.
+
+✅ Baaki promises automatically cancel nahi hoti.
+
+Wo background mein chalti rehti hain.
+
+# Start Early, Await Late
+
+❌ No Benefit
+
+```js
+const usersPromise = User.find();
+
+const users = await usersPromise;
+```
+
+Immediately wait.
+
+✅ Better
+
+```js
+const usersPromise = User.find();
+
+const config = await getConfig();
+
+const users = await usersPromise;
+```
+
+Rule:
+
+Start promise as early as possible.
+
+Await as late as possible.
+
+Faida tabhi hai jab beech mein koi aur useful work ho.
+
+# Promise.allSettled()
+
+```js
+const result = await Promise.allSettled([
+    User.find(),
+    Post.find(),
+    Notification.find()
+]);
+```
+
+Result:
+
+```js
+[
+    {
+        status: "fulfilled",
+        value: ...
+    },
+    {
+        status: "rejected",
+        reason: ...
+    }
+]
+```
+
+Use when:
+
+- Partial data bhi acceptable ho.
+
+Examples:
+
+- Dashboard
+- Analytics
+- Reports
+- Admin Panel
+
+# Promise.all vs Promise.allSettled
+
+Promise.all
+
+- All success required.
+- One reject → Whole reject.
+
+Promise.allSettled
+
+- Success + Failure dono ka result milta hai.
+- Har promise ka status available hota hai.
+
+# Async Loop
+
+❌ Wrong
+
+```js
+users.forEach(async (user) => {
+    await saveUser(user);
+});
+```
+
+Reason:
+
+forEach promises ka wait nahi karta.
+
+✅ Sequential
+
+```js
+for (const user of users) {
+    await saveUser(user);
+}
+```
+
+Use when:
+
+Order matter karta ho.
+
+✅ Parallel
+
+```js
+await Promise.all(
+    users.map(user => saveUser(user))
+);
+```
+
+Execution:
+
+users
+
+↓
+
+map()
+
+↓
+
+[Promise, Promise, Promise]
+
+↓
+
+Promise.all()
+
+↓
+
+[Value, Value, Value]
+
+# map()
+
+```js
+users.map(user => saveUser(user))
+```
+Returns:
+
+```js
+[
+    Promise,
+    Promise,
+    Promise
+]
+```
+
+Promise.all wait karta hai.
+
+Final result:
+
+```js
+[
+    value1,
+    value2,
+    value3
+]
+```
+
+# Golden Rules
+
+## Sequential
+
+```js
+await A();
+await B();
+```
+
+When:
+
+B depends on A.
+
+## Parallel
+
+```js
+await Promise.all([
+    A(),
+    B()
+]);
+```
+
+When:
+
+A & B are independent.
+
+## Partial Success
+
+```js
+await Promise.allSettled([
+    A(),
+    B()
+]);
+```
+
+When:
+
+Available data bhi return karna ho.
+
+## Loop
+
+❌
+
+```js
+forEach(async ...)
+```
+
+```js
+for...of
+```
+
+Sequential.
+
+```js
+Promise.all(arr.map(...))
+```
+Parallel.
+# Remember
+
+✔ Promise.all preserves input order.
+
+✔ Promise.all rejects if one promise rejects.
+
+✔ Promise.all does NOT cancel other promises.
+
+✔ forEach does NOT wait for async callbacks.
+
+✔ map() returns an array.
+
+✔ async function always returns a Promise.
+
+✔ Start Early, Await Late only when there's useful work before await.
