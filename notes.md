@@ -4222,3 +4222,609 @@ Parallel.
 ✔ async function always returns a Promise.
 
 ✔ Start Early, Await Late only when there's useful work before await.
+
+# Node.js - Streams, EventEmitter & Buffer Notes
+
+# Streams
+
+## Problem
+
+```js
+fs.readFile("movie.mp4");
+```
+
+Large file.
+
+↓
+
+Entire file RAM mein load hoti hai.
+
+Problem:
+
+- High Memory Usage
+- Out Of Memory
+- Large files ke liye suitable nahi.
+
+## Stream Solution
+
+Instead of loading whole file:
+
+```
+File
+
+↓
+
+Chunk
+
+↓
+
+Process
+
+↓
+
+Discard
+
+↓
+
+Next Chunk
+
+↓
+
+Process
+```
+
+Benefits:
+
+- Low Memory Usage
+- Large Files Handle
+- Memory Efficient
+
+## Read Stream Events
+
+### data
+
+Har new chunk par fire hota hai.
+
+```js
+stream.on("data", (chunk) => {});
+```
+
+### end
+
+Jab poori file successfully read ho jaye.
+
+```js
+stream.on("end", () => {});
+```
+
+### error
+
+Read karte waqt koi problem aaye.
+
+Examples:
+
+- File not found
+- Permission denied
+- Disk Error
+
+```js
+stream.on("error", (err) => {});
+```
+
+## Stream Flow
+
+```
+File
+
+↓
+
+Chunk
+
+↓
+
+data Event
+
+↓
+
+Chunk
+
+↓
+
+data Event
+
+↓
+
+Chunk
+
+↓
+
+data Event
+
+↓
+
+end Event
+```
+
+# Writable Stream
+
+```js
+const write = fs.createWriteStream("copy.txt");
+```
+
+Used to write data.
+
+# pipe()
+
+Manual:
+
+```js
+read.on("data", (chunk) => {
+    write.write(chunk);
+});
+```
+
+Production:
+
+```js
+read.pipe(write);
+```
+
+Benefits:
+
+- Cleaner Code
+- Automatic Chunk Transfer
+- Automatic Backpressure Handling
+
+## pipe() Flow
+
+```
+Read Stream
+
+↓
+
+pipe()
+
+↓
+
+Write Stream
+```
+
+Automatically continues until Read Stream ends.
+
+# Backpressure
+
+Problem:
+
+```
+Read Speed
+
+100 MB/s
+
+↓
+
+Write Speed
+
+20 MB/s
+```
+
+Without handling:
+
+```
+Memory keeps increasing.
+```
+
+Solution:
+
+```
+pipe()
+
+↓
+
+Pause Read
+
+↓
+
+Write Complete
+
+↓
+
+Resume Read
+```
+
+Rule:
+
+Fast producer should slow down when consumer is slow.
+
+# Stream Purpose
+
+Streams optimize:
+
+✅ Memory
+
+Not Time.
+
+# EventEmitter
+
+Normal Class
+
+```js
+class Chat {}
+```
+
+No events.
+
+Enable Events
+
+```js
+class Chat extends EventEmitter {}
+```
+
+Now Chat has:
+
+```js
+.on()
+
+.emit()
+
+.once()
+
+.off()
+```
+
+## on()
+
+Registers listener.
+
+```js
+chat.on("message", callback);
+```
+
+Does NOT execute callback immediately.
+
+## emit()
+
+Triggers event.
+
+```js
+chat.emit("message");
+```
+
+Flow:
+
+```
+emit()
+
+↓
+
+Event
+
+↓
+
+Listener
+
+↓
+
+Callback
+```
+
+## once()
+
+Runs only first time.
+
+```js
+chat.once("message", callback);
+```
+
+Flow:
+
+```
+First emit
+
+↓
+
+Callback
+
+↓
+
+Listener Removed
+
+↓
+
+Next emit
+
+↓
+
+Nothing
+```
+
+## off()
+
+Removes listener.
+
+```js
+chat.off("message", callback);
+```
+
+After removing:
+
+```js
+emit()
+```
+
+↓
+
+Nothing happens.
+
+# EventEmitter Examples
+
+Browser
+
+```js
+button.addEventListener("click", callback);
+```
+
+Concept:
+
+```
+Click
+
+↓
+
+Event
+
+↓
+
+Callback
+```
+
+Streams
+
+```js
+stream.on("data", callback);
+```
+
+Concept:
+
+```
+Chunk
+
+↓
+
+Event
+
+↓
+
+Callback
+```
+
+# Buffer
+
+Computer stores everything as:
+
+```
+Binary (0 & 1)
+```
+
+Node.js stores binary data temporarily inside:
+
+```
+Buffer
+```
+
+Definition:
+
+Buffer = Temporary memory area for binary data.
+
+# Buffer Flow
+
+```
+File
+
+↓
+
+Binary
+
+↓
+
+Buffer
+
+↓
+
+Your Code
+```
+
+# Stream Chunk
+
+```js
+stream.on("data", (chunk) => {});
+```
+
+Question:
+
+What is chunk?
+
+Answer:
+
+```
+Buffer
+```
+
+Not String.
+
+# Buffer Output
+
+```js
+console.log(chunk);
+```
+
+Output:
+
+```text
+<Buffer ...>
+```
+
+# Convert Buffer → String
+
+```js
+chunk.toString();
+```
+
+Example:
+
+```
+Buffer
+
+↓
+
+toString()
+
+↓
+
+Hello
+```
+
+# When to use toString()
+
+✅ Text Files
+
+- txt
+- json
+- csv
+- xml
+
+---
+
+❌ Do NOT use for
+
+- Images
+- Videos
+- PDFs
+- ZIP Files
+
+These should remain binary.
+
+# Buffer Checks
+
+```js
+typeof buffer
+```
+
+Output:
+
+```text
+object
+```
+
+Specific check:
+
+```js
+Buffer.isBuffer(buffer)
+```
+
+Output:
+
+```text
+true
+```
+# Connection
+
+```
+Disk
+
+↓
+
+Binary
+
+↓
+
+Buffer
+
+↓
+
+Stream
+
+↓
+
+data Event
+
+↓
+
+Your Code
+```
+
+# Golden Rules
+
+## Streams
+
+Purpose:
+
+```
+Memory Optimization
+```
+
+## Promise.all
+
+Purpose:
+
+```
+Time Optimization
+```
+
+## Buffer
+
+Purpose:
+
+```
+Handle Binary Data Efficiently
+```
+## EventEmitter
+
+```
+on()
+```
+
+↓
+
+Register Listener
+
+```
+emit()
+```
+
+↓
+
+Fire Event
+
+
+```
+once()
+```
+
+↓
+
+Run Once
+
+```
+off()
+```
+
+↓
+
+Remove Listener
+
+
+# Remember
+
+✔ Streams process data chunk by chunk.
+
+✔ Chunk is Buffer.
+
+✔ Buffer stores binary data.
+
+✔ Buffer ≠ String.
+
+✔ Use toString() only for text data.
+
+✔ pipe() automatically handles chunk transfer & backpressure.
+
+✔ EventEmitter is the foundation of Streams.
