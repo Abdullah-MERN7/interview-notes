@@ -4828,3 +4828,67 @@ Remove Listener
 ✔ pipe() automatically handles chunk transfer & backpressure.
 
 ✔ EventEmitter is the foundation of Streams.
+
+# Redis Fundamentals
+
+## Why Redis?
+
+Problem:
+
+```js
+const products = await Product.find();
+```
+
+Every request hits MongoDB.
+
+```
+1000 Users
+↓
+1000 MongoDB Queries
+```
+
+## Solution
+
+Store frequently accessed data in Redis.
+
+```
+Client
+↓
+Redis
+↓
+Cache Hit ✅
+↓
+Response
+```
+
+## Cache Hit
+
+Data exists in Redis.
+
+## Cache Miss
+
+Data not found in Redis.
+↓
+MongoDB
+↓
+Redis
+↓
+Response
+
+## TTL
+
+Automatically removes cache after a specific time.
+
+```redis
+EXPIRE products 300
+```
+
+## Commands
+
+```redis
+SET products "[...]"
+GET products
+DEL products
+EXPIRE products 300
+TTL products
+```
