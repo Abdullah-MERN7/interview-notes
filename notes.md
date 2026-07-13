@@ -4892,3 +4892,277 @@ DEL products
 EXPIRE products 300
 TTL products
 ```
+
+# Redis Practical Implementation
+
+## GET /products Flow
+
+```
+Client
+↓
+Express
+↓
+Redis
+↓
+Cache Hit?
+├── Yes → Return Response
+└── No
+      ↓
+   MongoDB
+      ↓
+   Store in Redis
+      ↓
+   Return Response
+```
+
+## Cache Hit
+
+```js
+const cachedProducts = await redis.get("products");
+
+if (cachedProducts) {
+    return res.json(JSON.parse(cachedProducts));
+}
+```
+
+No MongoDB query.
+
+## Cache Miss
+
+```js
+const products = await Product.find();
+
+await redis.set("products", JSON.stringify(products));
+
+await redis.expire("products", 300);
+
+return res.json(products);
+```
+
+Flow:
+
+```
+Cache Miss
+↓
+MongoDB
+↓
+Redis SET
+↓
+EXPIRE
+↓
+Response
+```
+
+## Better Approach
+
+Instead of:
+
+```js
+await redis.set("products", JSON.stringify(products));
+await redis.expire("products", 300);
+```
+
+Prefer:
+
+```redis
+SET products "data" EX 300
+```
+
+Reason:
+
+- Single command
+- Atomic operation
+- Prevents data without TTL
+
+## Cache Invalidation
+
+After updating MongoDB:
+
+```js
+await redis.del("products");
+```
+
+Flow:
+
+```
+Update MongoDB
+↓
+Delete Redis Cache
+↓
+Next Request
+↓
+Cache Miss
+↓
+MongoDB
+↓
+Redis Store
+```
+
+## Invalidate All Affected Caches
+
+If Product 2 changes:
+
+```
+products
+featured-products
+top-selling-products
+product:2
+```
+
+All related caches should be invalidated.
+
+Do not invalidate unrelated caches like:
+
+```
+users
+cart
+sessions
+```
+
+## Redis String
+
+Best for:
+
+- Cache
+- OTP
+- JWT
+- Access Token
+- Refresh Token
+- Complete JSON Objects
+
+Store:
+
+```js
+await redis.set(
+    "user:15",
+    JSON.stringify(user)
+);
+```
+
+Read:
+
+```js
+const data = await redis.get("user:15");
+
+const user = JSON.parse(data);
+```
+
+Flow:
+
+```
+Object
+↓
+JSON.stringify()
+↓
+Redis String
+↓
+GET
+↓
+JSON.parse()
+↓
+Object
+```
+
+## Limitation of String
+
+Updating one field requires:
+
+```
+GET
+↓
+JSON.parse()
+↓
+Update Field
+↓
+JSON.stringify()
+↓
+SET
+```
+
+Entire object must be rewritten.
+
+## Redis Hash
+
+Best for:
+
+- User Profile
+- User Session
+- Product Details
+- Frequently Updated Objects
+
+Structure:
+
+```
+user:15
+
+id      → 15
+name    → Ali
+email   → ali@gmail.com
+role    → Admin
+```
+
+Only required fields can be updated.
+
+No need to rewrite the whole object.
+
+## Hash Commands
+
+Store field:
+
+```redis
+HSET user:15 name Ali
+```
+
+Get one field:
+
+```redis
+HGET user:15 email
+```
+
+Get multiple fields:
+
+```redis
+HMGET user:15 name email role
+```
+
+Get complete hash:
+
+```redis
+HGETALL user:15
+```
+
+Check field exists:
+
+```redis
+HEXISTS user:15 phone
+```
+
+## String vs Hash
+
+### String
+
+Use when:
+
+- Single value
+- Complete JSON cache
+- Rare updates
+
+### Hash
+
+Use when:
+
+- Individual fields update frequently
+- Partial reads are common
+- Partial updates are required
+
+## Golden Rules
+
+- Always check Redis before MongoDB.
+- Cache Hit should never query MongoDB.
+- Cache Miss should populate Redis.
+- Always set TTL for cache.
+- Use atomic `SET ... EX` when possible.
+- Invalidate every affected cache after updates.
+- Store objects as JSON in String.
+- Use Hash when fields change independently.
+- Fetch only the fields you actually need.
