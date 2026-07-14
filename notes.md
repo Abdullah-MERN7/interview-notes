@@ -5166,3 +5166,371 @@ Use when:
 - Store objects as JSON in String.
 - Use Hash when fields change independently.
 - Fetch only the fields you actually need.
+
+# Redis Data Types
+
+## Redis String
+
+Best for:
+
+- OTP
+- JWT
+- Access Token
+- Refresh Token
+- Cache
+- Complete JSON Objects
+
+Store Object:
+
+```js
+await redis.set(
+    "user:15",
+    JSON.stringify(user)
+);
+```
+
+Read Object:
+
+```js
+const data = await redis.get("user:15");
+
+const user = JSON.parse(data);
+```
+
+Flow:
+
+```
+Object
+↓
+JSON.stringify()
+↓
+Redis String
+↓
+GET
+↓
+JSON.parse()
+↓
+Object
+```
+
+## Limitation of String
+
+Updating one field requires:
+
+```
+GET
+↓
+JSON.parse()
+↓
+Update Field
+↓
+JSON.stringify()
+↓
+SET Again
+```
+
+Entire object is rewritten.
+
+## Redis Hash
+
+Purpose:
+
+Store objects whose fields change frequently.
+
+Structure:
+
+```
+user:15
+
+id      → 15
+name    → Ali
+email   → ali@gmail.com
+role    → Admin
+```
+
+Advantages:
+
+- Update individual fields
+- Read only required fields
+- No need to rewrite entire object
+
+## Hash Commands
+
+Store field:
+
+```redis
+HSET user:15 name Ali
+```
+
+Get one field:
+
+```redis
+HGET user:15 email
+```
+
+Get multiple fields:
+
+```redis
+HMGET user:15 name email role
+```
+
+Get complete hash:
+
+```redis
+HGETALL user:15
+```
+
+Check field exists:
+
+```redis
+HEXISTS user:15 phone
+```
+
+## String vs Hash
+
+### String
+
+Use when:
+
+- Complete JSON
+- Rare updates
+- Single value
+
+### Hash
+
+Use when:
+
+- Frequently changing fields
+- Partial updates
+- Partial reads
+
+## Redis Sorted Set
+
+Purpose:
+
+Store unique members with scores while keeping them automatically sorted.
+
+Structure:
+
+```
+Ali     → 130
+Usman   → 120
+Ahmed   → 80
+Hamza   → 60
+```
+
+Best for:
+
+- Leaderboards
+- Rankings
+- Trending Posts
+- Top Selling Products
+- Game Scores
+
+## Sorted Set Commands
+
+Add / Update Score:
+
+```redis
+ZADD leaderboard 120 Ali
+```
+
+Lowest → Highest:
+
+```redis
+ZRANGE leaderboard 0 9
+```
+
+Highest → Lowest:
+
+```redis
+ZREVRANGE leaderboard 0 9
+```
+
+Get Score:
+
+```redis
+ZSCORE leaderboard Ali
+```
+
+Get Rank (Ascending):
+
+```redis
+ZRANK leaderboard Ali
+```
+
+Get Rank (Descending / Leaderboard):
+
+```redis
+ZREVRANK leaderboard Ali
+```
+
+## Important Notes
+
+- Members are unique.
+- Updating score automatically reorders the member.
+- Use `ZREVRANGE` for leaderboards.
+- Redis ranks start from 0.
+
+## Redis Set
+
+Purpose:
+
+Store only unique values.
+
+Best for:
+
+- Post Likes
+- Online Users
+- Unique Visitors
+- Active Devices
+- Blocked Users
+
+Example:
+
+```
+post:101:likes
+
+Ali
+Ahmed
+Usman
+```
+
+Duplicate values are ignored automatically.
+
+## Set Commands
+
+Add:
+
+```redis
+SADD post:101:likes Ali
+```
+
+Check Exists:
+
+```redis
+SISMEMBER post:101:likes Ali
+```
+
+Get All Members:
+
+```redis
+SMEMBERS post:101:likes
+```
+
+Count Members:
+
+```redis
+SCARD post:101:likes
+```
+
+Remove Member:
+
+```redis
+SREM post:101:likes Ali
+```
+
+## Redis List
+
+Purpose:
+
+Maintain insertion order.
+
+Best for:
+
+- Recent Searches
+- Notifications
+- Activity Logs
+- Simple Queues
+
+Example:
+
+```
+Latest
+
+↓
+
+Docker
+
+↓
+
+Redis
+
+↓
+
+Node.js
+
+↓
+
+React
+
+↓
+
+Oldest
+```
+
+## List Commands
+
+Insert at Beginning:
+
+```redis
+LPUSH user:15:searches Docker
+```
+
+Insert at End:
+
+```redis
+RPUSH user:15:searches Docker
+```
+
+Read Range:
+
+```redis
+LRANGE user:15:searches 0 9
+```
+
+Remove First Item:
+
+```redis
+LPOP user:15:searches
+```
+
+Remove Last Item:
+
+```redis
+RPOP user:15:searches
+```
+
+## Maintaining Recent Searches
+
+Flow:
+
+```
+LPUSH New Search
+↓
+If List > 10
+↓
+RPOP Oldest Search
+```
+
+This keeps only the latest 10 searches.
+
+## Choosing the Right Data Type
+
+| Requirement | Data Type |
+|-------------|-----------|
+| Single Value / Cache / Token | String |
+| Object with Frequently Updated Fields | Hash |
+| Rankings / Leaderboards | Sorted Set |
+| Unique Values | Set |
+| Ordered Collection | List |
+
+## Golden Rules
+
+- Use **String** for simple values and cached JSON.
+- Use **Hash** for frequently updated objects.
+- Use **Sorted Set** whenever ranking or scoring is required.
+- Use **Set** when uniqueness matters.
+- Use **List** when insertion order matters.
+- Fetch only the data you need.
+- Choose the data structure based on the problem, not because it "can" store the data.
