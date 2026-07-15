@@ -5534,3 +5534,327 @@ This keeps only the latest 10 searches.
 - Use **List** when insertion order matters.
 - Fetch only the data you need.
 - Choose the data structure based on the problem, not because it "can" store the data.
+
+# Redis Sessions
+
+## Why Sessions?
+
+Without sessions:
+
+```
+Every Request
+↓
+Email
+Password
+↓
+Authentication
+```
+
+Not practical.
+
+Solution:
+
+```
+Login
+↓
+Generate Session ID
+↓
+Store Session
+↓
+Return Session ID
+```
+
+## Session Flow
+
+```
+Login
+↓
+Generate Session ID
+↓
+Store in Redis
+↓
+Return Session ID
+```
+
+Next Request:
+
+```
+Client
+↓
+Session ID
+↓
+Redis
+↓
+Session Exists?
+├── Yes → Allow Request
+└── No → 401 Unauthorized
+```
+
+## Where is Session Stored?
+
+Browser:
+
+```
+Session ID / Cookie
+```
+
+Redis:
+
+```
+session:abc123
+
+userId
+role
+loginTime
+lastActivity
+```
+
+## Best Datatype
+
+Hash
+
+Reason:
+
+- Multiple fields
+- Individual fields can be updated
+- No need to rewrite the whole object
+
+## Logout
+
+```
+Logout
+↓
+DEL session:abc123
+↓
+Session Removed
+```
+
+## Session Expiry
+
+Store session with TTL.
+
+```
+Login
+↓
+Store Session
+↓
+TTL = 30 Minutes
+```
+
+Inactive user:
+
+```
+TTL Ends
+↓
+Redis Deletes Session
+```
+
+## Sliding Session Expiration
+
+If user is active:
+
+```
+Request
+↓
+Reset TTL
+↓
+Session Remains Active
+```
+
+If user is inactive:
+
+```
+TTL Ends
+↓
+Session Deleted
+```
+
+# Redis Rate Limiting
+
+## Why Rate Limiting?
+
+Prevent:
+
+- Brute Force
+- API Abuse
+- Server Overload
+
+Example:
+
+```
+Limit = 5 Requests / Minute
+```
+
+## Fixed Window
+
+Store request count.
+
+```
+login:192.168.1.10
+↓
+Request Count
+```
+
+Increase count:
+
+```redis
+INCR login:192.168.1.10
+```
+
+Expire counter:
+
+```redis
+EXPIRE login:192.168.1.10 60
+```
+
+Limit reached:
+
+```
+429 Too Many Requests
+```
+
+## Why INCR?
+
+Avoid race conditions.
+
+Instead of:
+
+```
+GET
+↓
+SET
+```
+
+Use:
+
+```redis
+INCR
+```
+
+Atomic operation.
+
+## Fixed Window Limitation
+
+```
+12:00:59 → 5 Requests
+
+12:01:00 → 5 Requests
+```
+
+1 second:
+
+```
+10 Requests
+```
+
+Boundary problem.
+
+## Sliding Window
+
+Always checks:
+
+```
+Last 60 Seconds
+```
+
+Flow:
+
+```
+Remove Old Requests
+↓
+Count Remaining
+↓
+If Limit Not Reached
+↓
+Store Current Request
+```
+
+## Best Datatype
+
+Sorted Set
+
+Reason:
+
+- Timestamp as Score
+- Automatically Sorted
+- Easy to remove old requests
+
+# Redis Pub/Sub
+
+## Components
+
+Publisher
+
+↓
+
+Channel
+
+↓
+
+Subscriber
+
+## Publisher
+
+Sends messages.
+
+## Subscriber
+
+Receives messages.
+
+## Channel
+
+Communication medium between publisher and subscribers.
+
+## Broadcast
+
+One published message is received by every subscriber of the same channel.
+
+## User Specific Channel
+
+Example:
+
+```
+user:15
+```
+
+Only that user receives the message.
+
+## Limitation
+
+Pub/Sub does not store messages.
+
+If subscriber is offline:
+
+```
+Publish
+↓
+Message Lost
+```
+
+## Best Use Cases
+
+- Live Chat Typing Indicator
+- Live Notifications
+- Live Dashboard Updates
+- Stock Price Updates
+- Multiplayer Game Events
+
+## Not Suitable For
+
+- OTP Processing
+- Email Queue
+- Order Processing
+- Payment Processing
+
+Use BullMQ / Queue instead.
+
+# Golden Rules
+
+- Sessions → Hash + TTL
+- Logout → Delete Session
+- Active User → Reset TTL
+- Rate Limiting → INCR + EXPIRE
+- Sliding Window → Sorted Set
+- Pub/Sub → Real-time only
+- Offline Subscribers miss messages
+- Guaranteed delivery requires Queue/BullMQ
