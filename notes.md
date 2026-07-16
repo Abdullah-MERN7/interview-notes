@@ -5858,3 +5858,386 @@ Use BullMQ / Queue instead.
 - Pub/Sub → Real-time only
 - Offline Subscribers miss messages
 - Guaranteed delivery requires Queue/BullMQ
+
+# Docker Basics
+
+## Why Docker?
+
+Problem:
+
+```
+Works on My Machine
+
+↓
+
+Doesn't Work on Another Machine
+```
+
+Reason:
+
+- Different Node.js versions
+- Different MongoDB versions
+- Missing Redis
+- Different environments
+
+Solution:
+
+Package the complete environment.
+
+## Image vs Container
+
+Image
+
+- Blueprint
+- Template
+- Reusable
+
+Container
+
+- Running instance of an Image
+
+Example:
+
+```
+Docker Image
+↓
+
+Container 1
+
+Container 2
+
+Container 3
+```
+
+Deleting a container does not delete the image.
+
+## Development vs Production
+
+Development
+
+```
+Local Code
+↓
+
+Bind Mount (Volume)
+
+↓
+
+Container
+```
+
+Changes reflect instantly.
+
+Production
+
+```
+Local Code
+↓
+
+Build Image
+
+↓
+
+Deploy Image
+
+↓
+
+Container
+```
+
+Never edit code inside a production container.
+
+Always:
+
+```
+Change Code
+
+↓
+
+Build New Image
+
+↓
+
+Deploy New Container
+```
+
+## Dockerfile
+
+Basic Dockerfile:
+
+```dockerfile
+FROM node:22
+
+WORKDIR /app
+
+COPY package*.json ./
+
+RUN npm install
+
+COPY . .
+
+EXPOSE 5000
+
+CMD ["npm", "start"]
+```
+
+## Dockerfile Commands
+
+### FROM
+
+Selects the base image.
+
+```dockerfile
+FROM node:22
+```
+
+Includes:
+
+- Linux
+- Node.js
+- npm
+
+### WORKDIR
+
+Sets the working directory.
+
+```dockerfile
+WORKDIR /app
+```
+
+### COPY
+
+Copies files into the image.
+
+```dockerfile
+COPY package*.json ./
+
+COPY . .
+```
+
+### RUN
+
+Executes commands while building the image.
+
+```dockerfile
+RUN npm install
+```
+
+### CMD
+
+Runs when the container starts.
+
+```dockerfile
+CMD ["npm", "start"]
+```
+
+### EXPOSE
+
+Documents the application port.
+
+```dockerfile
+EXPOSE 5000
+```
+
+## .dockerignore
+
+Ignore unnecessary files.
+
+```
+node_modules
+.git
+.env
+npm-debug.log
+```
+
+## Docker Cache
+
+Bad:
+
+```dockerfile
+COPY . .
+
+RUN npm install
+```
+
+Every code change reruns:
+
+```
+npm install
+```
+
+Better:
+
+```dockerfile
+COPY package*.json ./
+
+RUN npm install
+
+COPY . .
+```
+
+Only dependency changes rerun:
+
+```
+RUN npm install
+```
+
+## Build Flow
+
+```
+Dockerfile
+
+↓
+
+docker build -t backend .
+
+↓
+
+Image
+
+↓
+
+docker run -p 5000:5000 backend
+
+↓
+
+Container
+```
+
+## Port Mapping
+
+```
+Host : Container
+
+5000 : 5000
+```
+
+Example:
+
+```bash
+docker run -p 8000:5000 backend
+```
+
+Application URL:
+
+```
+http://localhost:8000
+```
+
+## Docker Compose
+
+Purpose:
+
+Run multiple services with one command.
+
+Example:
+
+```
+Node.js
+
+MongoDB
+
+Redis
+```
+
+Start:
+
+```bash
+docker compose up
+```
+
+## Docker Networking
+
+Inside Docker Compose:
+
+```
+Service Name = Host
+```
+
+Example:
+
+```yaml
+services:
+  app:
+  mongodb:
+  redis:
+```
+
+Connections:
+
+```
+mongodb://mongodb:27017
+
+redis://redis:6379
+```
+
+Never use:
+
+```
+localhost
+```
+
+inside one container to reach another container.
+
+## Useful Commands
+
+Build Image
+
+```bash
+docker build -t backend .
+```
+
+Run Container
+
+```bash
+docker run -p 5000:5000 backend
+```
+
+Running Containers
+
+```bash
+docker ps
+```
+
+Images
+
+```bash
+docker images
+```
+
+Logs
+
+```bash
+docker logs <container-id>
+```
+
+Open Shell
+
+```bash
+docker exec -it <container-id> bash
+```
+
+Stop Container
+
+```bash
+docker stop <container-id>
+```
+
+Start Existing Container
+
+```bash
+docker start <container-id>
+```
+
+## Golden Rules
+
+- Image = Blueprint
+- Container = Running Instance
+- One Image → Multiple Containers
+- Use Bind Mounts in Development
+- Use Immutable Images in Production
+- Service Name = Host Name
+- Build Image → Run Container
+- RUN executes during image build
+- CMD executes when the container starts
+- Optimize Docker cache by copying package files before source code
