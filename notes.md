@@ -6241,3 +6241,412 @@ docker start <container-id>
 - RUN executes during image build
 - CMD executes when the container starts
 - Optimize Docker cache by copying package files before source code
+
+
+# Docker Day 2 - Docker Compose, Networking & Volumes
+
+## Docker Compose
+
+Docker Compose allows us to manage multiple containers from a single `docker-compose.yml` file.
+
+Example:
+
+```yaml
+services:
+  backend:
+    build: .
+    ports:
+      - "4500:4500"
+
+  mongodb:
+    image: mongo:8
+    ports:
+      - "27017:27017"
+```
+
+Start containers:
+
+```bash
+docker compose up
+```
+
+Rebuild and start:
+
+```bash
+docker compose up --build
+```
+
+Stop and remove containers:
+
+```bash
+docker compose down
+```
+
+---
+
+# Docker Networking
+
+Docker Compose automatically creates a network.
+
+Example:
+
+```
+backend_default
+```
+
+Every service becomes reachable by its **service name**.
+
+```text
+backend
+mongodb
+redis
+```
+
+Inside the backend container:
+
+```js
+mongoose.connect("mongodb://mongodb:27017/docker-course");
+```
+
+`localhost` refers to the current container only.
+
+Service name (`mongodb`) acts as the hostname inside the Docker network.
+
+If the service name changes:
+
+```yaml
+database:
+```
+
+Connection string also changes:
+
+```js
+mongodb://database:27017/docker-course
+```
+
+---
+
+# MongoDB with Docker
+
+Created MongoDB container using Compose.
+
+Connected Express application with:
+
+```js
+mongoose.connect("mongodb://mongodb:27017/docker-course");
+```
+
+Created a User model.
+
+Verified data using:
+
+```bash
+docker exec -it backend-mongodb-1 mongosh
+```
+
+```javascript
+show dbs
+
+use docker-course
+
+show collections
+
+db.users.find()
+```
+
+---
+
+# Docker Volume
+
+Without a volume:
+
+```text
+Container
+    │
+    ▼
+Database Files
+```
+
+Deleting the container removes the database.
+
+Compose configuration:
+
+```yaml
+services:
+  mongodb:
+    image: mongo:8
+    volumes:
+      - mongo-data:/data/db
+
+volumes:
+  mongo-data:
+```
+
+Meaning:
+
+```
+Docker Volume (mongo-data)
+        │
+        ▼
+Container (/data/db)
+```
+
+MongoDB stores its database files inside:
+
+```
+/data/db
+```
+
+The Docker Volume stores those files permanently.
+
+Container can be deleted without losing database data.
+
+---
+
+# Named Volume
+
+Example:
+
+```yaml
+volumes:
+  - mongo-data:/data/db
+```
+
+Left side:
+
+```
+mongo-data
+```
+
+Docker-managed named volume.
+
+Right side:
+
+```
+/data/db
+```
+
+Path inside the container.
+
+Useful for:
+
+- MongoDB
+- PostgreSQL
+- Redis
+- Persistent application data
+
+---
+
+# Volume Inspection
+
+List all volumes:
+
+```bash
+docker volume ls
+```
+
+Inspect a volume:
+
+```bash
+docker volume inspect backend_mongo-data
+```
+
+Important field:
+
+```text
+Mountpoint:
+/var/lib/docker/volumes/backend_mongo-data/_data
+```
+
+Although running on Windows, Docker Desktop stores volumes inside its internal Linux VM.
+
+---
+
+# Named Volume vs Bind Mount
+
+## Named Volume
+
+```yaml
+volumes:
+  - mongo-data:/data/db
+```
+
+```
+Container
+     │
+     ▼
+Docker Volume
+     │
+     ▼
+Hidden Docker Storage
+```
+
+Best for:
+
+- Databases
+- Persistent application storage
+
+---
+
+## Bind Mount
+
+```yaml
+volumes:
+  - ./uploads:/app/uploads
+```
+
+```
+Project Folder
+        ▲
+        │
+Shared
+        ▼
+Container Folder
+```
+
+Changes made in either location appear instantly in the other.
+
+Useful for:
+
+- Uploaded files
+- Logs
+- Source code during development
+
+---
+
+# Development vs Production
+
+Development:
+
+```yaml
+volumes:
+  - .:/app
+```
+
+Benefits:
+
+- Live code changes
+- No rebuild after every edit
+- Works well with Nodemon
+
+Production:
+
+- Source code is copied into the image.
+
+```dockerfile
+COPY . .
+```
+
+Use Named Volumes only for persistent data like databases.
+
+Avoid bind mounting application source code in production.
+
+---
+
+# Docker Debug Notes
+
+## Issue
+
+API was saving data successfully, but MongoDB Compass did not show the `docker-course` database.
+
+## Root Cause
+
+Two different MongoDB instances were running.
+
+```
+Windows MongoDB
+↓
+
+practiceDB
+mini-blog
+...
+
+Docker MongoDB
+↓
+
+docker-course
+```
+
+Compass was connected to Windows MongoDB.
+
+Backend was connected to Docker MongoDB.
+
+Both were different servers.
+
+## Debug Commands
+
+Check running containers:
+
+```bash
+docker ps
+```
+
+Check container port mapping:
+
+```bash
+docker port backend-mongodb-1
+```
+
+Check which process is using MongoDB port:
+
+```bash
+netstat -ano | findstr :27017
+```
+
+Identify the process:
+
+```bash
+tasklist | findstr <PID>
+```
+
+Verify Docker MongoDB directly:
+
+```bash
+docker exec -it backend-mongodb-1 mongosh
+
+show dbs
+
+use docker-course
+
+show collections
+
+db.users.find()
+```
+
+## Production Debugging Rule
+
+If:
+
+- API works ✅
+- MongoDB Connected log appears ✅
+- Compass does not show data ❌
+
+Don't blame the code immediately.
+
+Always verify:
+
+```bash
+docker ps
+docker port <container>
+netstat -ano | findstr :27017
+tasklist | findstr <PID>
+docker exec -it <container> mongosh
+```
+
+---
+
+# Key Takeaways
+
+- Docker Compose manages multiple containers.
+- Docker Compose automatically creates a network.
+- Service names work as hostnames.
+- `localhost` refers to the current container.
+- Containers are temporary.
+- Named Volumes keep data persistent.
+- MongoDB stores its data inside `/data/db`.
+- Every database instance should have its own dedicated volume.
+- Every project should have its own dedicated database volume.
+- Named Volumes are ideal for databases.
+- Bind Mounts are ideal for development and uploaded files.
+- Production uses images for code and volumes only for persistent data.
+- Always debug connectivity before assuming database issues.
