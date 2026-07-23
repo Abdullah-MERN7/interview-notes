@@ -6816,3 +6816,307 @@ Picked by another Worker
 - Queues absorb traffic spikes.
 - Retry failures with limits.
 - Preserve failed jobs for debugging.
+
+# BullMQ - Practical 01 (Queue & Worker Basics)
+
+## Architecture
+
+```text
+Client
+   │
+   ▼
+Controller
+   │
+emailQueue.add(...)
+   │
+   ▼
+Redis
+   │
+   ▼
+Worker
+   │
+Process Job
+```
+
+## Redis Connection
+
+```js
+import IORedis from "ioredis";
+
+const connection = new IORedis({
+  host: "localhost",
+  port: 6379,
+  maxRetriesPerRequest: null,
+});
+
+export default connection;
+```
+
+- `ioredis` Node.js ko Redis se connect karta hai.
+- `connection` Redis Connection Object hota hai.
+
+## Queue
+
+```js
+import { Queue } from "bullmq";
+import connection from "../config/redis.js";
+
+const emailQueue = new Queue("email-queue", {
+  connection,
+});
+
+export default emailQueue;
+```
+
+### Queue Name
+
+```js
+new Queue("email-queue")
+```
+
+- `"email-queue"` = Queue Name
+- Ek Redis me multiple queues ho sakti hain.
+
+Example:
+
+```text
+email-queue
+sms-queue
+notification-queue
+```
+
+## Controller
+
+```js
+await emailQueue.add("book-created", {
+  title: book.title,
+  author: book.author,
+  price: book.price,
+});
+```
+
+### `add()` ke Parameters
+
+```js
+emailQueue.add(
+  "book-created", // Job Name
+  {
+    title,
+    author,
+    price,
+  } // Job Data
+);
+```
+
+### Job Name
+
+Ek queue ke andar multiple jobs ho sakti hain.
+
+Example:
+
+```text
+email-queue
+│
+├── send-welcome-email
+├── send-reset-password-email
+└── book-created
+```
+
+## Worker
+
+```js
+new Worker(
+  "email-queue",
+  async (job) => {
+    console.log(job.name);
+    console.log(job.data);
+  },
+  {
+    connection,
+  }
+);
+```
+
+### Important
+
+Queue aur Worker ka **Queue Name same** hona chahiye.
+
+```js
+new Queue("email-queue")
+new Worker("email-queue")
+```
+
+Agar names different hue to Worker kabhi jobs receive nahi karega.
+
+## Job Flow
+
+```text
+Controller
+     │
+emailQueue.add(...)
+     │
+     ▼
+Redis
+     │
+     ▼
+Worker
+     │
+job.data
+```
+
+- Controller sirf job queue me add karta hai.
+- Worker automatically Redis se job receive karta hai.
+- Controller Worker ko direct call nahi karta.
+
+## job.data
+
+Worker me:
+
+```js
+job.data
+```
+
+BullMQ Redis se data read karke automatically provide karta hai.
+
+## Worker Down
+
+Agar Worker band ho:
+
+```text
+Controller
+     │
+emailQueue.add()
+     │
+Redis ✅
+     │
+Worker Off
+```
+
+Job Redis me save rahegi.
+
+Jab Worker dubara start hoga:
+
+```text
+Redis
+   │
+Worker
+   │
+Process Job
+```
+
+## Retry
+
+Agar Worker processing ke waqt fail ho:
+
+```text
+Waiting
+   │
+Active
+   │
+Retry
+   │
+Completed
+```
+
+Agar saari retries fail ho jayein:
+
+```text
+Failed
+```
+
+Job immediately lost nahi hoti.
+
+## Redis Down
+
+Agar:
+
+```text
+User Saved ✅
+Redis Down ❌
+```
+
+To queue me job hi nahi jayegi.
+
+Is situation ke liye production me **Outbox Pattern** use hota hai.
+
+## Outbox Pattern
+
+```text
+Database
+│
+├── User
+└── Outbox Event
+```
+
+Baad me Worker/Cron:
+
+```text
+Outbox
+   │
+Queue
+   │
+Worker
+```
+
+Isse server crash hone par bhi event lost nahi hota.
+
+## Processing Order
+
+Default BullMQ:
+
+```text
+Job1
+ ↓
+Job2
+ ↓
+Job3
+```
+
+FIFO (First In First Out)
+
+## One Worker
+
+Ek Worker by default:
+
+```text
+1 Worker
+    │
+1 Job at a time
+```
+
+Agar:
+
+```text
+Job1 = 2 hours
+Job2 = 2 sec
+```
+
+To:
+
+```text
+Job1
+ ↓
+Job2
+```
+
+Job2 ko wait karna padega.
+
+Is problem ko solve karne ke liye BullMQ me:
+
+- Concurrency
+- Multiple Workers
+
+use kiye jate hain.
+
+## Key Takeaways
+
+- Queue job store karti hai.
+- Worker job execute karta hai.
+- Redis queue ko persist karta hai.
+- Controller Worker ko call nahi karta.
+- Worker automatically queue listen karta hai.
+- Queue Name ≠ Job Name.
+- `job.data` BullMQ Redis se provide karta hai.
+- Default processing = FIFO.
+- Default Worker = One Job at a Time.
+- Production reliability = Retry + Outbox Pattern.
