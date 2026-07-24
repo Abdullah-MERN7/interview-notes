@@ -7120,3 +7120,443 @@ use kiye jate hain.
 - Default processing = FIFO.
 - Default Worker = One Job at a Time.
 - Production reliability = Retry + Outbox Pattern.
+
+
+# BullMQ - Practical 02 (Job States & Concurrency)
+
+## Job Lifecycle
+
+A BullMQ job passes through different states during its lifecycle.
+
+```text
+Controller
+     │
+emailQueue.add(...)
+     │
+     ▼
+Waiting
+     │
+Worker Picks Job
+     │
+     ▼
+Active
+     │
+Processing Successful
+     │
+     ▼
+Completed
+```
+
+---
+
+## Waiting
+
+When a job is added:
+
+```js
+await emailQueue.add("book-created", data);
+```
+
+The job is **not executed immediately**.
+
+It is first stored inside Redis.
+
+```text
+Controller
+     │
+add(job)
+     │
+     ▼
+Redis
+     │
+Waiting
+```
+
+Meaning:
+
+- Worker has not picked the job yet.
+
+---
+
+## Active
+
+As soon as a Worker becomes available:
+
+```text
+Waiting
+   │
+   ▼
+Active
+```
+
+The Worker starts processing the job.
+
+Example:
+
+```js
+console.log("Job Started");
+
+await new Promise((resolve) => setTimeout(resolve, 5000));
+
+console.log("Job Completed");
+```
+
+During these 5 seconds the job state is:
+
+```text
+Active
+```
+
+---
+
+## Completed
+
+When the Worker finishes successfully:
+
+```text
+Waiting
+   │
+Active
+   │
+Completed
+```
+
+The job is marked as completed.
+
+---
+
+## Failed
+
+If an error occurs while processing:
+
+```js
+throw new Error("SMTP Server Down");
+```
+
+State becomes:
+
+```text
+Waiting
+   │
+Active
+   │
+Failed
+```
+
+---
+
+## Retry
+
+BullMQ can retry failed jobs.
+
+Example:
+
+```text
+Attempt 1 ❌
+Attempt 2 ❌
+Attempt 3 ✅
+```
+
+Flow:
+
+```text
+Waiting
+   │
+Active
+   │
+Failed
+   │
+Retry
+   │
+Active
+   │
+Completed
+```
+
+If all configured attempts fail:
+
+```text
+Waiting
+   │
+Active
+   │
+Retry
+   │
+Failed
+```
+
+Final state:
+
+```text
+Failed
+```
+
+---
+
+# Concurrency
+
+By default:
+
+```text
+1 Worker
+        │
+1 Job at a Time
+```
+
+Processing order:
+
+```text
+Job1
+ ↓
+Job2
+ ↓
+Job3
+```
+
+---
+
+## Enable Concurrency
+
+```js
+new Worker("email-queue", processor, {
+  connection,
+  concurrency: 5,
+});
+```
+
+Meaning:
+
+- Maximum **5 jobs** can remain Active simultaneously.
+
+---
+
+## Practical Test
+
+We created:
+
+```text
+10 Jobs
+```
+
+Worker configuration:
+
+```js
+concurrency: 5
+```
+
+Observed output:
+
+```text
+Started
+Started
+Started
+Started
+Started
+
+Completed
+Completed
+Completed
+Completed
+Completed
+
+Started
+Started
+Started
+Started
+Started
+```
+
+Meaning:
+
+- First 5 jobs became Active.
+- Remaining 5 stayed in Waiting.
+- As soon as slots became free, BullMQ picked the remaining jobs.
+
+---
+
+## Important
+
+Concurrency does **not** mean jobs are processed in fixed batches.
+
+Think of it as available execution slots.
+
+Example:
+
+```text
+Slots = 5
+
+Job1
+Job2
+Job3
+Job4
+Job5
+```
+
+If Job2 finishes first:
+
+```text
+Job6 starts immediately.
+```
+
+BullMQ never waits for all jobs to finish before starting the next ones.
+
+---
+
+## Waiting Queue Example
+
+```text
+Concurrency = 5
+
+Active
+------
+Job1
+Job2
+Job3
+Job4
+Job5
+
+Waiting
+-------
+Job6
+Job7
+Job8
+Job9
+Job10
+```
+
+If Job3 completes:
+
+```text
+Active
+------
+Job1
+Job2
+Job4
+Job5
+Job6
+```
+
+Job6 immediately replaces Job3.
+
+---
+
+## Promise.all()
+
+To generate multiple jobs simultaneously:
+
+```js
+const requests = [];
+
+for (let i = 1; i <= 10; i++) {
+  requests.push(fetch(...));
+}
+
+await Promise.all(requests);
+```
+
+Why?
+
+Without `Promise.all`:
+
+```text
+Request1
+ ↓
+Request2
+ ↓
+Request3
+```
+
+Serial execution.
+
+With `Promise.all`:
+
+```text
+Request1
+Request2
+Request3
+...
+Request10
+```
+
+Requests are sent concurrently, making it ideal for testing queue concurrency.
+
+---
+
+## Infrastructure Debugging
+
+Encountered error:
+
+```text
+ECONNREFUSED localhost:6379
+```
+
+Root cause:
+
+```text
+Redis Container was stopped.
+```
+
+This was **not** a BullMQ issue.
+
+Debugging order:
+
+```text
+Application Error
+       │
+       ▼
+Service Running?
+       │
+       ▼
+Network OK?
+       │
+       ▼
+Configuration OK?
+       │
+       ▼
+Check Code
+```
+
+Production engineers first verify infrastructure before changing application code.
+
+---
+
+## Concurrency Best Practice
+
+High concurrency is not always better.
+
+Example:
+
+```js
+concurrency: 1000
+```
+
+Possible problems:
+
+- CPU overload
+- High memory usage
+- Database connection exhaustion
+- SMTP/API rate limits
+- External service throttling
+
+Choose concurrency based on workload.
+
+Examples:
+
+```text
+Email Queue        → 5
+Image Processing   → 2
+Notifications      → 20
+Webhook Queue      → 10
+```
+
+---
+
+## Key Takeaways
+
+- Jobs move through: Waiting → Active → Completed / Failed.
+- Failed jobs can be retried.
+- Concurrency controls the maximum number of Active jobs.
+- Waiting jobs automatically start when a slot becomes available.
+- `Promise.all()` is useful for concurrency testing.
+- Always debug infrastructure (Redis, Docker, Networking) before changing application code.
+- Production systems aim for **optimal** concurrency, not maximum concurrency.
