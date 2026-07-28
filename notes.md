@@ -7560,3 +7560,248 @@ Webhook Queue      → 10
 - `Promise.all()` is useful for concurrency testing.
 - Always debug infrastructure (Redis, Docker, Networking) before changing application code.
 - Production systems aim for **optimal** concurrency, not maximum concurrency.
+
+# BullMQ - Retry, Backoff & Error Handling
+
+## Retry
+
+Background job temporary issue ki wajah se fail ho sakti hai.
+
+Examples:
+
+- External service temporarily unavailable
+- Network issue
+- Rate limit
+- SMTP service temporarily down
+
+BullMQ failed jobs ko retry kar sakta hai.
+
+```js
+await emailQueue.add("book-created", data, {
+  attempts: 4,
+});
+```
+
+`attempts: 4` means maximum 4 total attempts.
+
+```text
+Attempt 1 ❌
+Attempt 2 ❌
+Attempt 3 ❌
+Attempt 4 ❌
+Final Failed
+```
+
+Agar kisi attempt par job successful ho jaye:
+
+```text
+Attempt 1 ❌
+Attempt 2 ❌
+Attempt 3 ✅
+Completed
+```
+
+Remaining attempts execute nahi hote.
+
+## Backoff
+
+Immediate retries useful nahi hotin agar external service ko recover hone me time chahiye.
+
+```text
+Fail → Instant Retry → Fail → Instant Retry → Fail
+```
+
+Isliye retries ke darmiyan delay use karte hain.
+
+### Fixed Backoff
+
+Har retry se pehle same delay:
+
+```text
+Attempt 1 ❌
+↓ 5 sec
+Attempt 2 ❌
+↓ 5 sec
+Attempt 3
+```
+
+### Exponential Backoff
+
+Har retry ke baad delay increase hota hai.
+
+```js
+{
+  attempts: 4,
+  backoff: {
+    type: "exponential",
+    delay: 2000,
+  },
+}
+```
+
+Practical result:
+
+```text
+Attempt 1 ❌
+↓ 2 sec
+Attempt 2 ❌
+↓ 4 sec
+Attempt 3 ❌
+↓ 8 sec
+Attempt 4 ❌
+```
+
+Use case: external service overloaded/down ho aur exact recovery time unknown ho.
+
+## Retryable vs Non-Retryable Errors
+
+Production me har error ko blindly retry nahi karna chahiye.
+
+### Temporary Error
+
+Example:
+
+```text
+429 Too Many Requests
+503 Service Unavailable
+```
+
+Service kuch time baad recover ho sakti hai.
+
+```text
+Temporary Error
+↓
+Normal Error
+↓
+Backoff
+↓
+Retry
+```
+
+Example:
+
+```js
+throw error;
+```
+
+Normal error throw hone par BullMQ configured attempts/backoff ke according retry kar sakta hai.
+
+### Permanent Error
+
+Example:
+
+```text
+Invalid Email Address
+```
+
+Wait karne se input khud correct nahi hoga, isliye retries waste hongi.
+
+BullMQ me:
+
+```js
+import { UnrecoverableError } from "bullmq";
+
+throw new UnrecoverableError("Invalid email address");
+```
+
+Flow:
+
+```text
+Attempt 1 ❌
+↓
+UnrecoverableError
+↓
+Final Failed
+↓
+No Retry
+```
+
+`attempts: 4` configured hone ke bawajood job retry nahi hoti.
+
+## Error Classification
+
+Worker error ki nature ke according decide kar sakta hai:
+
+```js
+try {
+  await someExternalService();
+} catch (error) {
+  if (error.statusCode === 429) {
+    // Temporary failure
+    throw error;
+  }
+
+  throw new UnrecoverableError(error.message);
+}
+```
+
+Conceptually:
+
+```text
+External Service Error
+        ↓
+Retryable?
+   ↙          ↘
+ YES          NO
+ ↓             ↓
+Normal       Unrecoverable
+Error        Error
+ ↓             ↓
+Backoff      Final Failed
+ ↓
+Retry
+```
+
+Important: Production me sirf HTTP status category dekh kar blindly decision nahi lena. External service/API ka error contract samajh kar classify karna chahiye.
+
+## Practical Verification
+
+### Exponential Backoff
+
+Observed:
+
+```text
+Job 23 | attemptsMade: 0 | 1:06:05 PM
+Job 23 | attemptsMade: 1 | 1:06:07 PM
+Job 23 | attemptsMade: 2 | 1:06:11 PM
+Job 23 | attemptsMade: 3 | 1:06:19 PM
+```
+
+Confirmed delay:
+
+```text
+2 sec → 4 sec → 8 sec
+```
+
+### Retryable 429
+
+Observed 4 attempts with exponential backoff:
+
+```text
+Attempt 1 → 6:43:54
+Attempt 2 → 6:43:56
+Attempt 3 → 6:44:00
+Attempt 4 → 6:44:08
+```
+
+### Permanent Error
+
+Using `UnrecoverableError`:
+
+```text
+Job 26 | Attempt 1
+Permanent error → Retry NOT allowed
+```
+
+Only one attempt executed.
+
+## Production Takeaways
+
+- Retry temporary failures, not every failure.
+- Use backoff instead of continuously hitting a failing dependency.
+- Exponential backoff is useful when recovery time is unknown.
+- Stop retrying permanent/non-recoverable failures.
+- `attempts` defines the maximum attempts, not mandatory attempts.
+- A failed attempt does not necessarily mean the job is finally Failed.
+- `UnrecoverableError` can stop the retry cycle immediately.
+- Error classification should be based on the dependency's actual error behaviour/contract.
