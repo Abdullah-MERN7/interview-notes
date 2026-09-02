@@ -203,3 +203,166 @@ docker compose stop app
 * Docker service hostname aur localhost ka context different hota hai
 * Port conflicts mein check karo service actually kahan run ho rahi hai
 
+
+Bilkul. **Last MD notes ke baad se abhi tak ke important points** ko compact notes mein rakh raha hoon:
+
+# Redis — Important Notes
+
+## 1. Cache Stampede
+
+Jab cache expire/miss hota hai aur ek hi time par bohat saari requests MongoDB ko hit karti hain, usay **Cache Stampede** kehte hain.
+
+### Lock
+
+Redis lock use karke sirf **ek request** database se data fetch karti hai.
+
+```js
+const lock = await redisClient.set(lockKey, lockToken, {
+  NX: true,
+  EX: 10,
+});
+```
+
+* `NX` → lock sirf tab create hoga jab exist nahi karta
+* `EX` → lock automatically expire hoga
+* `lockToken` → unique ownership token
+
+Agar lock na mile:
+
+* cache dobara check
+* short wait
+* limited retries
+* cache phir bhi na mile to fallback DB
+
+### Safe Lock Release
+
+Lock ko blindly delete nahi karna, kyunki lock expire hone ke baad doosri request naya lock le sakti hai.
+
+Unique token se verify karke release karna safer hai.
+
+## 2. TTL Jitter
+
+Sab cache keys ek hi waqt expire na hon, isliye TTL mein random variation add karte hain.
+
+```js
+const baseTTL = 60;
+const jitter = Math.floor(Math.random() * 20);
+const ttl = baseTTL + jitter;
+```
+
+TTL approximately **60–79 seconds** ho jayega.
+
+Useful especially jab bohat saari cache keys hon.
+
+## 3. Rate Limiting
+
+Rate limiter API requests ko control karta hai.
+
+Example:
+
+```text
+100 requests / 60 seconds
+```
+
+Limit cross hone par:
+
+```text
+HTTP 429
+Too Many Requests
+```
+
+### Sliding Window
+
+Fixed Window ki boundary problem avoid karne ke liye **Sliding Window** use kiya.
+
+Redis **Sorted Set (ZSET)** mein requests ke timestamps store kiye:
+
+* `ZADD` → request add
+* `ZREMRANGEBYSCORE` → old requests remove
+* `ZCARD` → current requests count
+* `EXPIRE` → Redis key cleanup
+
+### Lua Script
+
+Remove → Add → Count → Decision ko atomic banaya.
+
+Current testing:
+
+```js
+const LIMIT = 3;
+```
+
+Result:
+
+```text
+1st → 1 → Allow
+2nd → 1 → Allow
+3rd → 1 → Allow
+4th → 0 → Block
+```
+
+Production example:
+
+```js
+const LIMIT = 100;
+```
+
+## 4. Redis Pub/Sub
+
+Pub/Sub mein:
+
+```text
+Publisher
+   ↓
+Redis Channel
+   ↓
+Subscriber
+```
+
+Publisher message send karta hai:
+
+```js
+await redisClient.publish("book-events", message);
+```
+
+Subscriber channel listen karta hai:
+
+```js
+await subscriber.subscribe("book-events", callback);
+```
+
+### Book Store Implementation
+
+Book create hone par:
+
+```text
+POST /books
+   ↓
+Book Created
+   ↓
+PUBLISH "book-events"
+   ↓
+Subscriber
+   ↓
+Email/Notification action
+```
+
+Event example:
+
+```js
+{
+  type: "BOOK_CREATED",
+  bookId: "...",
+  title: "joe"
+}
+```
+
+### Important
+
+**BullMQ vs Pub/Sub:**
+
+* **BullMQ** → reliable background jobs / queues
+* **Pub/Sub** → real-time event/message distribution
+
+Pub/Sub subscriber offline ho to normally missed message ko baad mein queue ki tarah process nahi karta.
+
